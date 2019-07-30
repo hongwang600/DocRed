@@ -26,7 +26,7 @@ parser.add_argument('--output_file', type = str, default = "result.json")
 
 args = parser.parse_args()
 model = {
-	'LSTM_SP': models.LSTM_SP
+    'LSTM_SP': models.LSTM_SP
 }
 
 con = config.EviConfig(args)

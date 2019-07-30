@@ -26,11 +26,11 @@ parser.add_argument('--input_theta', type = float, default = -1)
 
 args = parser.parse_args()
 model = {
-	'CNN3': models.CNN3,
-	'LSTM': models.LSTM,
-	'BiLSTM': models.BiLSTM,
-	'ContextAware': models.ContextAware,
-	# 'LSTM_SP': models.LSTM_SP
+    'CNN3': models.CNN3,
+    'LSTM': models.LSTM,
+    'BiLSTM': models.BiLSTM,
+    'ContextAware': models.ContextAware,
+    # 'LSTM_SP': models.LSTM_SP
 }
 
 con = config.Config(args)
