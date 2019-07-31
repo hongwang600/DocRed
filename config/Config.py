@@ -75,8 +75,6 @@ class Config(object):
         self.batch_size = 40
         self.h_t_limit = 1800
 
-        self.evi_batch_size = 4000
-
         self.test_batch_size = self.batch_size
         self.test_relation_limit = 1800
         self.char_limit = 16
@@ -423,104 +421,8 @@ class Config(object):
                    'indexes': indexes
                    }
 
-    def get_N2_train_batch_from_data(self, cur_batch, relation_dis):
 
-        context_idxs = torch.LongTensor(self.evi_batch_size, self.max_length).cuda()
-        context_pos = torch.LongTensor(self.evi_batch_size, self.max_length).cuda()
-
-        context_ner = torch.LongTensor(self.evi_batch_size, self.max_length).cuda()
-        context_char_idxs = torch.LongTensor(self.evi_batch_size, self.max_length, self.char_limit).cuda()
-
-        relation_label = torch.LongTensor(self.evi_batch_size).cuda()
-        evidence_label = torch.Tensor(self.evi_batch_size, self.sent_limit).cuda()
-        sent_mask = torch.Tensor(self.evi_batch_size, self.sent_limit).cuda()
-
-        sent_h_mapping = torch.Tensor(self.evi_batch_size, self.sent_limit, self.max_length).cuda()
-        sent_t_mapping = torch.Tensor(self.evi_batch_size, self.sent_limit, self.max_length).cuda()
-
-        batch_relation_dis = torch.Tensor(self.evi_batch_size, relation_dis.size(-1))
-
-
-        for b in range(self.train_batches):
-            #start_id = b * self.ins_batch_size
-            #cur_bsz = min(self.ins_batch_size, self.train_len - start_id)
-            #cur_batch = list(self.train_order[start_id: start_id + cur_bsz])
-            #cur_batch.sort(key=lambda x: np.sum(self.data_train_word[x]>0) , reverse = True)
-
-            for mapping in [sent_h_mapping, sent_t_mapping, sent_mask, evidence_label, context_pos, relation_label]:
-                mapping.zero_()
-
-            max_sents = 0
-            i = 0
-            for w, index in enumerate(cur_batch):
-                ins = self.train_file[index]
-                Ls = ins['Ls']
-                max_sents = max(max_sents, len(Ls) - 1)
-                #random.shuffle(ins['labels'])
-                for ins_idx, label in enumerate(ins['labels']):
-                    context_idxs[i].copy_(torch.from_numpy(self.data_train_word[index, :]))
-                    context_char_idxs[i].copy_(torch.from_numpy(self.data_train_char[index, :]))
-                    context_ner[i].copy_(torch.from_numpy(self.data_train_ner[index, :]))
-                    relation_label[i] = label['r']
-
-                    h_idx = label['h']
-                    t_idx = label['t']
-
-                    hlist = ins['vertexSet'][h_idx]
-                    tlist = ins['vertexSet'][t_idx]
-
-                    for h in hlist:
-                        context_pos[i, h['pos'][0]:h['pos'][1]] = 1
-
-                    for t in tlist:
-                        context_pos[i, t['pos'][0]:t['pos'][1]] = 2
-
-                    for e in label['evidence']:
-                        evidence_label[i, int(e)] = 1
-
-                    for j in range(len(Ls) - 1):
-                        sent_h_mapping[i, j, Ls[j]] = 1
-                        sent_t_mapping[i, j, Ls[j + 1] - 1] = 1
-                        sent_mask[i, j] = 1
-
-                    batch_relation_dis[i] = relation_dis[w, ins_idx]
-
-
-                    i += 1
-                    if i == self.evi_batch_size:
-                        break
-                if i == self.evi_batch_size:
-                    break
-
-
-
-            cur_bsz = i
-            input_lengths = (context_idxs[:cur_bsz] > 0).long().sum(dim=1)
-            max_c_len = int(input_lengths.max())
-
-            return {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
-                   'context_pos': context_pos[:cur_bsz, :max_c_len].contiguous(),
-                   'relation_label': relation_label[:cur_bsz].contiguous(),
-                   'input_lengths' : input_lengths,
-                   'context_ner': context_ner[:cur_bsz, :max_c_len].contiguous(),
-                   'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous(),
-                   'sent_h_mapping': sent_h_mapping[:cur_bsz, :max_sents, :max_c_len],
-                   'sent_t_mapping': sent_t_mapping[:cur_bsz, :max_sents, :max_c_len],
-                   'sent_mask': sent_mask[:cur_bsz, :max_sents],
-                   'evidence_label': evidence_label[:cur_bsz, :max_sents],
-                   'batch_relation_dis': batch_relation_dis[:cur_bsz].contiguous(),
-                                   }
-
-    def train(self, model_pattern, model_name, evi_model):
-
-        evi_ori_model = evi_model(config = self)
-        if self.pretrain_model != None:
-            evi_ori_model.load_state_dict(torch.load(self.pretrain_model))
-        evi_ori_model.cuda()
-        evi_model = nn.DataParallel(evi_ori_model)
-
-        evi_optimizer = optim.Adam(filter(lambda p: p.requires_grad, evi_model.parameters()))
-
+    def train(self, model_pattern, model_name):
 
         ori_model = model_pattern(config = self)
         if self.pretrain_model != None:
@@ -586,27 +488,8 @@ class Config(object):
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re, relation_dis = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h)
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
-
-
-                cur_batch = data['cur_batch']
-                evi_data = self.get_N2_train_batch_from_data(cur_batch, relation_dis)
-                evi_context_idxs = evi_data['context_idxs']
-                evi_context_pos = evi_data['context_pos']
-                evi_relation_label = evi_data['relation_label']
-                evi_input_lengths =  evi_data['input_lengths']
-                evi_context_ner = evi_data['context_ner']
-                evi_context_char_idxs = evi_data['context_char_idxs']
-                evi_sent_h_mapping = evi_data['sent_h_mapping']
-                evi_sent_t_mapping = evi_data['sent_t_mapping']
-                evi_sent_mask = evi_data['sent_mask']
-                evi_evidence_label = evi_data['evidence_label']
-                evi_batch_relation_dis = evi_data['batch_relation_dis']
-
-                #predict_sent = evi_model(evi_context_idxs, evi_context_pos, evi_context_ner, evi_context_char_idxs, evi_input_lengths, evi_sent_h_mapping, evi_sent_t_mapping, evi_relation_label, evi_batch_relation_dis)
-                #loss += torch.sum(BCE(predict_sent, evi_evidence_label) * evi_sent_mask) / torch.sum(evi_sent_mask)
-
 
                 output = torch.argmax(predict_re, dim=-1)
                 output = output.data.cpu().numpy()
@@ -707,7 +590,7 @@ class Config(object):
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
-                predict_re, relation_dis = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h)
 
                 predict_re = torch.sigmoid(predict_re)

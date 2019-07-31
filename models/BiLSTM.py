@@ -78,9 +78,6 @@ class BiLSTM(nn.Module):
         start_re_output = torch.matmul(h_mapping, context_output)
         end_re_output = torch.matmul(t_mapping, context_output)
 
-        relation_dis = end_re_output - start_re_output
-        #print(end_re_output[0][:2])
-
         if self.use_distance:
             s_rep = torch.cat([start_re_output, self.dis_embed(dis_h_2_t)], dim=-1)
             t_rep = torch.cat([end_re_output, self.dis_embed(dis_t_2_h)], dim=-1)
@@ -88,7 +85,7 @@ class BiLSTM(nn.Module):
         else:
             predict_re = self.bili(start_re_output, end_re_output)
 
-        return predict_re, relation_dis
+        return predict_re
 
 
 class LockedDropout(nn.Module):
