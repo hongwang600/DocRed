@@ -24,6 +24,19 @@ json.dump(id2rel, open(os.path.join(out_path, 'id2rel.json'), "w"))
 fact_in_train = set([])
 fact_in_dev_train = set([])
 
+def sents_2_idx(sents, word2id):
+    sents_idx = []
+    for sent in sents:
+        new_sent = []
+        for word in sent:
+            word = word.lower()
+            if word in word2id:
+                new_sent.append(word2id[word])
+            else:
+                new_sent.append(word2id['UNK'])
+        sents_idx.append(new_sent)
+    return sents_idx
+
 def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''):
 
     ori_data = json.load(open(data_file_name))
@@ -33,6 +46,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     Ma_e = 0
     data = []
     intrain = notintrain = notindevtrain = indevtrain = 0
+    word2id = json.load(open(os.path.join(out_path, "word2id.json")))
     for i in range(len(ori_data)):
         Ls = [0]
         L = 0
@@ -112,6 +126,9 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
         item['na_triple'] = na_triple
         item['Ls'] = Ls
         item['sents'] = ori_data[i]['sents']
+        item['sents_idx'] = sents_2_idx(ori_data[i]['sents'], word2id)
+        if i%1000==0:
+            print(i)
         data.append(item)
 
         Ma = max(Ma, len(vertexSet))

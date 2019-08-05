@@ -183,6 +183,26 @@ class Config(object):
         self.test_order = list(range(self.test_len))
         self.test_order.sort(key=lambda x: np.sum(self.data_test_word[x] > 0), reverse=True)
 
+    def build_cooccur_matrix(self, vertex_set):
+        entity_size = len(vertex_set)
+        if entity_size == 0:
+            return None
+        cooccur_matrix = np.zeros([entity_size, entity_size]) - 1
+        inverse_idx = {}
+        for idx, vertex in enumerate(vertex_set):
+            for v_ins in vertex:
+                if v_ins['sent_id'] in inverse_idx:
+                    inverse_idx[v_ins['sent_id']].append(idx)
+                else:
+                    inverse_idx[v_ins['sent_id']] = [idx]
+        for idx, vertex in enumerate(vertex_set):
+            for v_ins in vertex:
+                sent_id = v_ins['sent_id']
+                vertex_in_this_sent = inverse_idx[sent_id]
+                for v in vertex_in_this_sent:
+                    cooccur_matrix[idx, v] = sent_id
+        #print(cooccur_matrix)
+        return cooccur_matrix
 
     def get_train_batch(self):
         random.shuffle(self.train_order)
@@ -223,6 +243,8 @@ class Config(object):
 
             max_h_t_cnt = 1
 
+            sents_idx = []
+            cooccur_matrix = []
 
             for i, index in enumerate(cur_batch):
                 context_idxs[i].copy_(torch.from_numpy(self.data_train_word[index, :]))
@@ -238,6 +260,8 @@ class Config(object):
                 ins = self.train_file[index]
                 labels = ins['labels']
                 idx2label = defaultdict(list)
+                sents_idx.append(ins['sents_idx'])
+                cooccur_matrix.append(self.build_cooccur_matrix(ins['vertexSet']))
 
                 for label in labels:
                     idx2label[(label['h'], label['t'])].append(label['r'])
@@ -315,7 +339,8 @@ class Config(object):
                    'context_ner': context_ner[:cur_bsz, :max_c_len].contiguous(),
                    'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'ht_pair_pos': ht_pair_pos[:cur_bsz, :max_h_t_cnt],
-                                   'cur_batch': cur_batch,
+                   'sents_idx': sents_idx,
+                   'cooccur_matrix': cooccur_matrix,
                    }
 
     def get_test_batch(self):
@@ -480,15 +505,16 @@ class Config(object):
                 context_ner = data['context_ner']
                 context_char_idxs = data['context_char_idxs']
                 ht_pair_pos = data['ht_pair_pos']
-
-
+                sents_idx = data['sents_idx']
+                cooccur_matrix = data['cooccur_matrix']
+                #print('data fetched')
 
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h)
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
 
                 output = torch.argmax(predict_re, dim=-1)

@@ -56,7 +56,7 @@ class BiLSTM(nn.Module):
             self.bili = torch.nn.Bilinear(hidden_size, hidden_size, config.relation_num)
 
     def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, h_mapping, t_mapping,
-                relation_mask, dis_h_2_t, dis_t_2_h):
+                relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix):
         # para_size, char_size, bsz = context_idxs.size(1), context_char_idxs.size(2), context_idxs.size(0)
         # context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size, -1)
         # context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
