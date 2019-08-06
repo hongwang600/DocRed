@@ -13,6 +13,8 @@ out_path = args.out_path
 case_sensitive = False
 
 char_limit = 16
+sent_limit = 25
+word_size = 100
 train_distant_file_name = os.path.join(in_path, 'train_distant.json')
 train_annotated_file_name = os.path.join(in_path, 'train_annotated.json')
 dev_file_name = os.path.join(in_path, 'dev.json')
@@ -23,19 +25,21 @@ id2rel = {v:u for u,v in rel2id.items()}
 json.dump(id2rel, open(os.path.join(out_path, 'id2rel.json'), "w"))
 fact_in_train = set([])
 fact_in_dev_train = set([])
+excess_limit = 0
 
 def sents_2_idx(sents, word2id):
-    sents_idx = []
-    for sent in sents:
-        new_sent = []
-        for word in sent:
+    global excess_limit
+    sents_idx = np.zeros([sent_limit, word_size]) + word2id['BLANK']
+    if len(sents) > sent_limit:
+        excess_limit += 1
+    for i, sent in enumerate(sents[:sent_limit]):
+        for j, word in enumerate(sent[:word_size]):
             word = word.lower()
             if word in word2id:
-                new_sent.append(word2id[word])
+                sents_idx[i][j] = word2id[word]
             else:
-                new_sent.append(word2id['UNK'])
-        sents_idx.append(new_sent)
-    return sents_idx
+                sents_idx[i][j] = word2id['UNK']
+    return sents_idx.tolist()
 
 def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''):
 
@@ -143,6 +147,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     print (intrain, notintrain)
     print ('fact_in_devtrain', len(fact_in_dev_train))
     print (indevtrain, notindevtrain)
+    print('excess sent limit', excess_limit)
 
 
     # saving
