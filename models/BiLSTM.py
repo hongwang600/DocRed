@@ -17,8 +17,12 @@ class BiLSTM(nn.Module):
         self.config = config
 
         word_vec_size = config.data_word_vec.shape[0]
+        self.word_emb_size = config.data_word_vec.shape[1]
         self.word_emb = nn.Embedding(word_vec_size, config.data_word_vec.shape[1])
         self.word_emb.weight.data.copy_(torch.from_numpy(config.data_word_vec))
+        self.sent_limit = config.sent_limit
+        self.batch_size = config.batch_size
+        self.word_size = config.word_size
 
         self.word_emb.weight.requires_grad = False
         self.use_entity_type = True
@@ -45,21 +49,101 @@ class BiLSTM(nn.Module):
             self.entity_embed = nn.Embedding(config.max_length, config.coref_size, padding_idx=0)
 
         # input_size += char_hidden
+        #input_size += hidden_size*2
 
         self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
+        self.sent_enc = EncoderLSTM(self.word_emb_size, hidden_size, 1, True, True, 1 - config.keep_prob, True)
         self.linear_re = nn.Linear(hidden_size*2, hidden_size)
 
         if self.use_distance:
             self.dis_embed = nn.Embedding(20, config.dis_size, padding_idx=10)
-            self.bili = torch.nn.Bilinear(hidden_size+config.dis_size, hidden_size+config.dis_size, config.relation_num)
+            self.bili = torch.nn.Bilinear(hidden_size*3+config.dis_size, hidden_size*3+config.dis_size, config.relation_num)
         else:
-            self.bili = torch.nn.Bilinear(hidden_size, hidden_size, config.relation_num)
+            self.bili = torch.nn.Bilinear(hidden_size*3, hidden_size*3, config.relation_num)
+
+    def update_rel_matrix(self, rel_matrix, cooccur_matrix):
+        cooccur_matrix = cooccur_matrix.float()
+        new_cooccur_matrix = torch.mm(cooccur_matrix, cooccur_matrix)
+        entity_size = cooccur_matrix.size(0)
+        embed_size = rel_matrix.size(-1)
+        expanded_rel_matrix = rel_matrix.unsqueeze(0).expand(entity_size, entity_size, entity_size, embed_size)
+        expanded_cooccur_matrix = cooccur_matrix.unsqueeze(-1).unsqueeze(-1).expand(expanded_rel_matrix.size())
+        #print(expanded_cooccur_matrix.size(), expanded_rel_matrix.size())
+        matrix_to_add = torch.mul( expanded_rel_matrix, expanded_cooccur_matrix.float().cuda())
+        base_matrix = rel_matrix.unsqueeze(-2).expand(entity_size, entity_size, entity_size, embed_size)
+        new_rel_matrix = (base_matrix + matrix_to_add).sum(-2).squeeze(-2)
+        flatten_new_cooccur = new_cooccur_matrix.view(-1)
+        valid_cooccur_idx = flatten_new_cooccur > 0
+        flatten_new_cooccur[valid_cooccur_idx] = 1 / flatten_new_cooccur[valid_cooccur_idx]
+        fraction = flatten_new_cooccur.view(new_cooccur_matrix.size())
+        fraction = fraction.unsqueeze(-1).expand(entity_size, entity_size, embed_size)
+        new_rel_matrix = new_rel_matrix * fraction
+        new_cooccur_matrix = (new_cooccur_matrix > 0).long()
+        #print(matrix_to_add.size())
+        #assert(False)
+        return new_rel_matrix, cooccur_matrix
+
+
+    def get_rel_matrix(self, sents_embed, cooccur_matrix):
+        #cooccur_matrix = torch.from_numpy(cooccur_matrix).long()
+        embed_size = sents_embed.size(-1)
+        sents_embed = torch.cat([sents_embed, torch.zeros(1, embed_size).cuda()])
+        entity_size = len(cooccur_matrix)
+        rel_matrix = torch.rand(entity_size, entity_size, embed_size).cuda()
+        #print(sents_embed.size(), cooccur_matrix.size())
+        #print(cooccur_matrix)
+        #print(len(sents_embed))
+        #assert(False)
+        rel_matrix = sents_embed[cooccur_matrix].contiguous()
+        cooccur_matrix = (cooccur_matrix >= 0).long()
+        #print(cooccur_matrix)
+        #print(rel_matrix.size())
+        max_hop = 2
+        for i in range(max_hop):
+            rel_matrix, cooccur_matrix = self.update_rel_matrix(rel_matrix, cooccur_matrix)
+        return rel_matrix
 
     def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, h_mapping, t_mapping,
-                relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix):
+                relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix, num_entities, h_t_idx):
         # para_size, char_size, bsz = context_idxs.size(1), context_char_idxs.size(2), context_idxs.size(0)
         # context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size, -1)
         # context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
+
+        #print(sents_idx.size, sents_idx[0])
+        #print(len(cooccur_matrix), cooccur_matrix[0])
+
+        batch_sents = self.word_emb(sents_idx).view(-1, self.word_size, self.word_emb_size)
+        sents_lengths = (sents_idx > 0).long().sum(dim=-1)
+        doc_lengths = (sents_lengths > 0).long().sum(dim=-1)
+        #print(doc_lengths)
+        #print(cooccur_matrix[0][0])
+        #print(context_idxs.size(), sents_idx.size(), doc_lengths.size())
+        #print(sents_idx[0][0])
+        #assert(False)
+        flatten_sents_lengths = sents_lengths.view(-1)
+        #print(doc_lengths)
+        valid_sents = batch_sents[flatten_sents_lengths>0]
+        valid_sents_lengths = flatten_sents_lengths[flatten_sents_lengths>0]
+        #print(valid_sents.size())
+        #print(sents_lengths, sents_lengths.size())
+        #print(batch_sents.size())
+        sents_embed = self.sent_enc(valid_sents, valid_sents_lengths)
+        doc_sents_embed_list = []
+        start_idx = 0
+        for doc_len in doc_lengths:
+            doc_sents_embed_list.append(sents_embed[start_idx:start_idx+doc_len])
+            start_idx += doc_len
+        #print(len(doc_sents_embed_list), doc_sents_embed_list[0].size())
+        #print(sents_embed.size())
+        rel_matrix = []
+        ins_rel_embed = []
+        for i in range(len(doc_sents_embed_list)):
+            rel_matrix.append(self.get_rel_matrix(doc_sents_embed_list[i], cooccur_matrix[i][:num_entities[i], :num_entities[i]]))
+            ins_rel_embed.append(rel_matrix[-1][h_t_idx[i][:,0],h_t_idx[i][:,1]])
+        #print(rel_matrix.size())
+        ins_rel_embed = torch.stack(ins_rel_embed)
+        #print(ins_rel_embed.size())
+        #assert(False)
 
         sent = self.word_emb(context_idxs)
         if self.use_coreference:
@@ -77,12 +161,17 @@ class BiLSTM(nn.Module):
         #print(h_mapping.size(), context_output.size())
         start_re_output = torch.matmul(h_mapping, context_output)
         end_re_output = torch.matmul(t_mapping, context_output)
+        print('end_rel',end_re_output.size())
 
         if self.use_distance:
             s_rep = torch.cat([start_re_output, self.dis_embed(dis_h_2_t)], dim=-1)
             t_rep = torch.cat([end_re_output, self.dis_embed(dis_t_2_h)], dim=-1)
+            s_rep = torch.cat([s_rep, ins_rel_embed], dim=-1)
+            t_rep = torch.cat([t_rep, ins_rel_embed], dim=-1)
             predict_re = self.bili(s_rep, t_rep)
         else:
+            s_rep = torch.cat([start_re_output, ins_rel_embed], dim=-1)
+            t_rep = torch.cat([end_re_output, ins_rel_embed], dim=-1)
             predict_re = self.bili(start_re_output, end_re_output)
 
         return predict_re
@@ -135,6 +224,11 @@ class EncoderRNN(nn.Module):
         return self.init_hidden[i].expand(-1, bsz, -1).contiguous()
 
     def forward(self, input, input_lengths=None):
+        lengths = torch.tensor(input_lengths)
+        lens, indices = torch.sort(lengths, 0, True)
+        input = input[indices]
+        _, _indices = torch.sort(indices, 0)
+
         bsz, slen = input.size(0), input.size(1)
         output = input
         outputs = []
@@ -158,12 +252,10 @@ class EncoderRNN(nn.Module):
                 outputs.append(hidden.permute(1, 0, 2).contiguous().view(bsz, -1))
             else:
                 outputs.append(output)
+        for i, output in enumerate(outputs):
+            outputs[i] = output[_indices]
         if self.concat:
             return torch.cat(outputs, dim=2)
-        return outputs[-1]
-
-
-
 
 class EncoderLSTM(nn.Module):
     def __init__(self, input_size, num_units, nlayers, concat, bidir, dropout, return_last):
@@ -201,11 +293,16 @@ class EncoderLSTM(nn.Module):
         return self.init_hidden[i].expand(-1, bsz, -1).contiguous(), self.init_c[i].expand(-1, bsz, -1).contiguous()
 
     def forward(self, input, input_lengths=None):
+        lengths = torch.tensor(input_lengths)
+        lens, indices = torch.sort(lengths, 0, True)
+        input = input[indices]
+        _, _indices = torch.sort(indices, 0)
+
         bsz, slen = input.size(0), input.size(1)
         output = input
         outputs = []
-        if input_lengths is not None:
-            lens = input_lengths.data.cpu().numpy()
+        #if input_lengths is not None:
+        #    lens = input_lengths.data.cpu().numpy()
 
         for i in range(self.nlayers):
             hidden, c = self.get_init(bsz, i)
@@ -214,7 +311,7 @@ class EncoderLSTM(nn.Module):
             if input_lengths is not None:
                 output = rnn.pack_padded_sequence(output, lens, batch_first=True)
 
-            output, hidden = self.rnns[i](output, (hidden, c))
+            output, (hidden, c) = self.rnns[i](output, (hidden, c))
 
 
             if input_lengths is not None:
@@ -226,8 +323,10 @@ class EncoderLSTM(nn.Module):
                 outputs.append(hidden.permute(1, 0, 2).contiguous().view(bsz, -1))
             else:
                 outputs.append(output)
+        for i, output in enumerate(outputs):
+            outputs[i] = output[_indices]
         if self.concat:
-            return torch.cat(outputs, dim=2)
+            return torch.cat(outputs, dim=-1)
         return outputs[-1]
 
 class BiAttention(nn.Module):

@@ -66,13 +66,14 @@ class Config(object):
 
 
         self.word_size = 100
+        self.max_entity_size = 50
         self.epoch_range = None
         self.cnn_drop_prob = 0.5  # for cnn
         self.keep_prob = 0.8  # for lstm
 
         self.period = 50
 
-        self.batch_size = 40
+        self.batch_size = 10
         self.h_t_limit = 1800
 
         self.test_batch_size = self.batch_size
@@ -213,6 +214,10 @@ class Config(object):
         t_mapping = torch.Tensor(self.batch_size, self.h_t_limit, self.max_length).cuda()
         relation_multi_label = torch.Tensor(self.batch_size, self.h_t_limit, self.relation_num).cuda()
         relation_mask = torch.Tensor(self.batch_size, self.h_t_limit).cuda()
+        sents_idx = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
+        cooccur_matrix = torch.LongTensor(self.batch_size, self.max_entity_size, self.max_entity_size).cuda()
+        num_entities = torch.LongTensor(self.batch_size).cuda()
+        h_t_idx = torch.LongTensor(self.batch_size, self.h_t_limit, 2)
 
         pos_idx = torch.LongTensor(self.batch_size, self.max_length).cuda()
 
@@ -238,13 +243,14 @@ class Config(object):
 
             ht_pair_pos.zero_()
 
+            h_t_idx.zero_()
+
 
             relation_label.fill_(IGNORE_INDEX)
 
             max_h_t_cnt = 1
 
-            sents_idx = []
-            cooccur_matrix = []
+            #sents_idx = []
 
             for i, index in enumerate(cur_batch):
                 context_idxs[i].copy_(torch.from_numpy(self.data_train_word[index, :]))
@@ -260,8 +266,14 @@ class Config(object):
                 ins = self.train_file[index]
                 labels = ins['labels']
                 idx2label = defaultdict(list)
-                sents_idx.append(ins['sents_idx'])
-                cooccur_matrix.append(self.build_cooccur_matrix(ins['vertexSet']))
+                #sents_idx.append(ins['sents_idx'])
+                sents_idx[i].copy_(torch.tensor(ins['sents_idx']))
+                #cooccur_matrix.append(self.build_cooccur_matrix(ins['vertexSet']))
+                this_cooccur_matrix = self.build_cooccur_matrix(ins['vertexSet'])
+                num_entities[i] = len(this_cooccur_matrix)
+                cooccur_matrix[i][:num_entities[i], :num_entities[i]].copy_(torch.from_numpy(this_cooccur_matrix))
+
+                #print(cooccur_matrix[-1][0][:5])
 
                 for label in labels:
                     idx2label[(label['h'], label['t'])].append(label['r'])
@@ -294,6 +306,7 @@ class Config(object):
                     relation_mask[i, j] = 1
                     rt = np.random.randint(len(label))
                     relation_label[i, j] = label[rt]
+                    h_t_idx[i][j][0], h_t_idx[i][j][1] = min(self.max_entity_size-1, h_idx), min(self.max_entity_size-1, t_idx)
 
 
 
@@ -320,6 +333,7 @@ class Config(object):
                         ht_pair_pos[i, j] = -int(self.dis2idx[-delta_dis])
                     else:
                         ht_pair_pos[i, j] = int(self.dis2idx[delta_dis])
+                    h_t_idx[i][j][0], h_t_idx[i][j][1] = min(self.max_entity_size-1, h_idx), min(self.max_entity_size-1, t_idx)
 
                 max_h_t_cnt = max(max_h_t_cnt, len(train_tripe) + lower_bound)
 
@@ -339,8 +353,10 @@ class Config(object):
                    'context_ner': context_ner[:cur_bsz, :max_c_len].contiguous(),
                    'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'ht_pair_pos': ht_pair_pos[:cur_bsz, :max_h_t_cnt],
-                   'sents_idx': sents_idx,
-                   'cooccur_matrix': cooccur_matrix,
+                   'sents_idx': sents_idx[:cur_bsz],
+                   'cooccur_matrix': cooccur_matrix[:cur_bsz],
+                   'num_entities': num_entities[:cur_bsz],
+                   'h_t_idx': h_t_idx[:cur_bsz, :max_h_t_cnt],
                    }
 
     def get_test_batch(self):
@@ -507,6 +523,11 @@ class Config(object):
                 ht_pair_pos = data['ht_pair_pos']
                 sents_idx = data['sents_idx']
                 cooccur_matrix = data['cooccur_matrix']
+                num_entities = data['num_entities']
+                h_t_idx = data['h_t_idx']
+                #print(cooccur_matrix[0][0:3][:5])
+                #print(len(cooccur_matrix))
+                #print(len(context_idxs))
                 #print('data fetched')
 
 
@@ -514,7 +535,7 @@ class Config(object):
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix)
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix, num_entities, h_t_idx)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
 
                 output = torch.argmax(predict_re, dim=-1)
