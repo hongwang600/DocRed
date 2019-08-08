@@ -161,7 +161,7 @@ class BiLSTM(nn.Module):
         #print(h_mapping.size(), context_output.size())
         start_re_output = torch.matmul(h_mapping, context_output)
         end_re_output = torch.matmul(t_mapping, context_output)
-        print('end_rel',end_re_output.size())
+        #print('end_rel',end_re_output.size())
 
         if self.use_distance:
             s_rep = torch.cat([start_re_output, self.dis_embed(dis_h_2_t)], dim=-1)
