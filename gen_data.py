@@ -41,10 +41,47 @@ def sents_2_idx(sents, word2id):
                 sents_idx[i][j] = word2id['UNK']
     return sents_idx.tolist()
 
-def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''):
+def get_corr_matrix(ins, rel2id, rel_num):
+    labels = ins['labels']
+    vetexSet = ins['vertexSet']
+    entity_size = len(vetexSet)
+    corr_matrix = np.zeros((rel_num, rel_num))
+    ent_rel_table = np.zeros((entity_size, rel_num))
 
+    for ins in labels:
+       h_id = ins['h']
+       t_id = ins['t']
+       r_id = rel2id[ins['r']]
+       ent_rel_table[h_id][r_id] += 1
+       ent_rel_table[t_id][r_id] += 1
+    '''
+    for i in range(len(ent_rel_table)):
+        for j in range(rel_num):
+            for k in range(rel_num):
+                corr_matrix[j][k] += min(ent_rel_table[i][j], ent_rel_table[i][k])
+    '''
+    table_1 = ent_rel_table.reshape(entity_size, rel_num, 1).repeat(rel_num,-1)
+    table_2 = ent_rel_table.reshape(entity_size, 1, rel_num).repeat(rel_num, -2)
+    corr_matrix = np.minimum(table_1, table_2).sum(0)
+    return corr_matrix
+def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''):
     ori_data = json.load(open(data_file_name))
 
+    rel_num = len(rel2id)
+    rel_corr_matrix = np.identity(rel_num)
+    for i in range(len(ori_data)):
+        if(i%1000==0):
+            print(i)
+        item = ori_data[i]
+        rel_corr_matrix += get_corr_matrix(item, rel2id, rel_num)
+    if is_training:
+        name_prefix = "train"
+    else:
+        name_prefix = "dev"
+    np.save(os.path.join(out_path, name_prefix + suffix + '_rel_corr.npy'), rel_corr_matrix)
+
+
+    '''
 
     Ma = 0
     Ma_e = 0
@@ -174,6 +211,9 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
 
     for i in range(len(ori_data)):
         item = ori_data[i]
+
+        #rel_corr_matrix += get_corr_matrix(item, rel2id, rel_num)
+
         words = []
         for sent in item['sents']:
             words += sent
@@ -207,7 +247,10 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     np.save(os.path.join(out_path, name_prefix + suffix + '_pos.npy'), sen_pos)
     np.save(os.path.join(out_path, name_prefix + suffix + '_ner.npy'), sen_ner)
     np.save(os.path.join(out_path, name_prefix + suffix + '_char.npy'), sen_char)
+    #np.save(os.path.join(out_path, name_prefix + suffix + '_rel_corr.npy'), rel_corr_matrix)
     print("Finish saving")
+
+    '''
 
 
 

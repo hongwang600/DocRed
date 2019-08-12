@@ -11,6 +11,22 @@ from torch.nn import init
 from torch.nn.utils import rnn
 
 
+class GCNSimpleDecoder(nn.Module):
+  """for ontonotes"""
+  def __init__(self, output_dim, entity_num):
+    super(GCNSimpleDecoder, self).__init__()
+    self.entity_num = entity_num
+    self.linear = nn.Linear(output_dim, entity_num, bias=False)
+
+    # gcn on label vectors
+    self.transform = nn.Linear(output_dim, output_dim, bias=False)
+
+
+  def forward(self, connection_matrix):
+    transform = self.transform(torch.matmul(connection_matrix, self.linear.weight)  / connection_matrix.sum(-1, keepdim=True))
+    label_vectors = transform + self.linear.weight # residual
+    return label_vectors
+
 class BiLSTM(nn.Module):
     def __init__(self, config):
         super(BiLSTM, self).__init__()
@@ -23,6 +39,7 @@ class BiLSTM(nn.Module):
         self.sent_limit = config.sent_limit
         self.batch_size = config.batch_size
         self.word_size = config.word_size
+        self.entity_size = config.max_entity_size
 
         self.word_emb.weight.requires_grad = False
         self.use_entity_type = True
@@ -54,12 +71,18 @@ class BiLSTM(nn.Module):
         self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
         self.sent_enc = EncoderLSTM(self.word_emb_size, hidden_size, 1, True, True, 1 - config.keep_prob, True)
         self.linear_re = nn.Linear(hidden_size*2, hidden_size)
+        self.gcn = GCNSimpleDecoder(hidden_size, self.entity_size)
 
         if self.use_distance:
             self.dis_embed = nn.Embedding(20, config.dis_size, padding_idx=10)
-            self.bili = torch.nn.Bilinear(hidden_size*3+config.dis_size, hidden_size*3+config.dis_size, config.relation_num)
+            self.bili = torch.nn.Bilinear(2*hidden_size+config.dis_size, 2*hidden_size+config.dis_size, config.relation_num)
+            #self.bili = torch.nn.Bilinear(hidden_size+config.dis_size, hidden_size+config.dis_size, config.relation_num)
+            #self.bili = torch.nn.Bilinear(hidden_size+config.dis_size, hidden_size+config.dis_size, hidden_size)
         else:
-            self.bili = torch.nn.Bilinear(hidden_size*3, hidden_size*3, config.relation_num)
+            self.bili = torch.nn.Bilinear(2*hidden_size, 2*hidden_size, config.relation_num)
+            #self.bili = torch.nn.Bilinear(hidden_size, hidden_size, config.relation_num)
+            #self.bili = torch.nn.Bilinear(hidden_size, hidden_size, hidden_size)
+        #self.linear_cls = torch.nn.Linear(hidden_size*3, config.relation_num)
 
     def update_rel_matrix(self, rel_matrix, cooccur_matrix):
         cooccur_matrix = cooccur_matrix.float()
@@ -112,6 +135,7 @@ class BiLSTM(nn.Module):
         #print(sents_idx.size, sents_idx[0])
         #print(len(cooccur_matrix), cooccur_matrix[0])
 
+        '''
         batch_sents = self.word_emb(sents_idx).view(-1, self.word_size, self.word_emb_size)
         sents_lengths = (sents_idx > 0).long().sum(dim=-1)
         doc_lengths = (sents_lengths > 0).long().sum(dim=-1)
@@ -144,6 +168,15 @@ class BiLSTM(nn.Module):
         ins_rel_embed = torch.stack(ins_rel_embed)
         #print(ins_rel_embed.size())
         #assert(False)
+        '''
+        corr_entity_embed = self.gcn(cooccur_matrix)
+        batch_size, h_t_size, _ = h_t_idx.size()
+        dim_1_idx = torch.arange(batch_size).view(-1,1).expand(batch_size, h_t_size)
+        #print(dim_1_idx[:5,:5])
+        #print(corr_entity_embed)
+        corr_h_embed = corr_entity_embed[dim_1_idx, h_t_idx[:,:,0]]
+        corr_t_embed = corr_entity_embed[dim_1_idx, h_t_idx[:,:,1]]
+        #print(corr_entity_embed.size(), corr_h_embed.size())
 
         sent = self.word_emb(context_idxs)
         if self.use_coreference:
@@ -166,13 +199,23 @@ class BiLSTM(nn.Module):
         if self.use_distance:
             s_rep = torch.cat([start_re_output, self.dis_embed(dis_h_2_t)], dim=-1)
             t_rep = torch.cat([end_re_output, self.dis_embed(dis_t_2_h)], dim=-1)
-            s_rep = torch.cat([s_rep, ins_rel_embed], dim=-1)
-            t_rep = torch.cat([t_rep, ins_rel_embed], dim=-1)
+            #rel_rep = self.bili(s_rep, t_rep)
+            #rel_rep = torch.cat([rel_rep, ins_rel_embed], dim=-1)
+            #predict_re = self.linear_cls(rel_rep)
+            s_rep = torch.cat([s_rep, corr_h_embed], dim=-1)
+            t_rep = torch.cat([t_rep, corr_t_embed], dim=-1)
             predict_re = self.bili(s_rep, t_rep)
         else:
-            s_rep = torch.cat([start_re_output, ins_rel_embed], dim=-1)
-            t_rep = torch.cat([end_re_output, ins_rel_embed], dim=-1)
-            predict_re = self.bili(start_re_output, end_re_output)
+            #rel_rep = self.bili(start_re_output, end_re_output)
+            #rel_rep = torch.cat([rel_rep, ins_rel_embed], dim=-1)
+            #predict_re = self.linear_cls(rel_rep)
+            #s_rep = torch.cat([start_re_output, ins_rel_embed], dim=-1)
+            #t_rep = torch.cat([end_re_output, ins_rel_embed], dim=-1)
+            s_rep = start_re_output
+            t_rep = end_re_output
+            s_rep = torch.cat([s_rep, corr_h_embed], dim=-1)
+            t_rep = torch.cat([t_rep, corr_t_embed], dim=-1)
+            predict_re = self.bili(s_rep, t_rep)
 
         return predict_re
 

@@ -188,7 +188,9 @@ class Config(object):
         entity_size = len(vertex_set)
         if entity_size == 0:
             return None
-        cooccur_matrix = np.zeros([entity_size, entity_size]) - 1
+        #cooccur_matrix = np.zeros([entity_size, entity_size]) - 1
+        cooccur_matrix = np.zeros([entity_size, entity_size])
+        #cooccur_matrix += np.identity(cooccur_matrix.shape[0])
         inverse_idx = {}
         for idx, vertex in enumerate(vertex_set):
             for v_ins in vertex:
@@ -201,7 +203,8 @@ class Config(object):
                 sent_id = v_ins['sent_id']
                 vertex_in_this_sent = inverse_idx[sent_id]
                 for v in vertex_in_this_sent:
-                    cooccur_matrix[idx, v] = sent_id
+                    #cooccur_matrix[idx, v] = sent_id
+                    cooccur_matrix[idx, v] += 1
         #print(cooccur_matrix)
         return cooccur_matrix
 
@@ -215,7 +218,7 @@ class Config(object):
         relation_multi_label = torch.Tensor(self.batch_size, self.h_t_limit, self.relation_num).cuda()
         relation_mask = torch.Tensor(self.batch_size, self.h_t_limit).cuda()
         sents_idx = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
-        cooccur_matrix = torch.LongTensor(self.batch_size, self.max_entity_size, self.max_entity_size).cuda()
+        cooccur_matrix = torch.Tensor(self.batch_size, self.max_entity_size, self.max_entity_size).cuda()
         num_entities = torch.LongTensor(self.batch_size).cuda()
         h_t_idx = torch.LongTensor(self.batch_size, self.h_t_limit, 2)
 
@@ -244,6 +247,8 @@ class Config(object):
             ht_pair_pos.zero_()
 
             h_t_idx.zero_()
+            cooccur_matrix.zero_()
+            cooccur_matrix += torch.eye(self.max_entity_size).cuda()
 
 
             relation_label.fill_(IGNORE_INDEX)
@@ -369,7 +374,7 @@ class Config(object):
         relation_mask = torch.Tensor(self.test_batch_size, self.h_t_limit).cuda()
         ht_pair_pos = torch.LongTensor(self.test_batch_size, self.h_t_limit).cuda()
         sents_idx = torch.LongTensor(self.test_batch_size, self.sent_limit, self.word_size).cuda()
-        cooccur_matrix = torch.LongTensor(self.test_batch_size, self.max_entity_size, self.max_entity_size).cuda()
+        cooccur_matrix = torch.Tensor(self.test_batch_size, self.max_entity_size, self.max_entity_size).cuda()
         num_entities = torch.LongTensor(self.test_batch_size).cuda()
         h_t_idx = torch.LongTensor(self.test_batch_size, self.h_t_limit, 2)
 
