@@ -159,3 +159,5 @@ if os.path.isdir(submit_dir) and os.path.isdir(truth_dir):
 
 
     output_file.close()
+
+    output_file.close()

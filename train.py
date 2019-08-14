@@ -28,13 +28,11 @@ model = {
     'LSTM': models.LSTM,
     'BiLSTM': models.BiLSTM,
     'ContextAware': models.ContextAware,
-    'LSTM_SP': models.LSTM_SP,
 }
 
 con = config.Config(args)
 con.set_max_epoch(200)
 con.load_train_data()
 con.load_test_data()
-#evi_con = config.EviConfig(args)
 # con.set_train_model()
 con.train(model[args.model_name], args.save_name)
