@@ -73,7 +73,7 @@ class Config(object):
 
         self.period = 50
 
-        self.batch_size = 10
+        self.batch_size = 40
         self.h_t_limit = 1800
 
         self.test_batch_size = self.batch_size
@@ -142,6 +142,10 @@ class Config(object):
         self.data_train_pos = np.load(os.path.join(self.data_path, prefix+'_pos.npy'))
         self.data_train_ner = np.load(os.path.join(self.data_path, prefix+'_ner.npy'))
         self.data_train_char = np.load(os.path.join(self.data_path, prefix+'_char.npy'))
+        self.rel_corr_matrix = np.load(os.path.join(self.data_path, prefix+'_rel_corr.npy'))
+        np.fill_diagonal(self.rel_corr_matrix, 1.0)
+        self.rel_corr_matrix = torch.from_numpy(self.rel_corr_matrix).float().cuda()
+        #print(self.rel_corr_matrix.size())
         self.train_file = json.load(open(os.path.join(self.data_path, prefix+'.json')))
 
         print("Finish reading")
@@ -274,9 +278,11 @@ class Config(object):
                 #sents_idx.append(ins['sents_idx'])
                 sents_idx[i].copy_(torch.tensor(ins['sents_idx']))
                 #cooccur_matrix.append(self.build_cooccur_matrix(ins['vertexSet']))
+                '''
                 this_cooccur_matrix = self.build_cooccur_matrix(ins['vertexSet'])
                 num_entities[i] = len(this_cooccur_matrix)
                 cooccur_matrix[i][:num_entities[i], :num_entities[i]].copy_(torch.from_numpy(this_cooccur_matrix))
+                '''
 
                 #print(cooccur_matrix[-1][0][:5])
 
@@ -558,8 +564,17 @@ class Config(object):
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix, num_entities, h_t_idx)
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix, num_entities, h_t_idx, self.rel_corr_matrix.expand(len(h_t_idx),-1,-1))
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
+
+                #print(self.rel_corr_matrix)
+                less_max_mask = (self.rel_corr_matrix < 100).float()
+                greater_max_mask = (self.rel_corr_matrix >= 100).float()
+                weight_matrix = less_max_mask * ((self.rel_corr_matrix / 100.0) ** 0.75) + greater_max_mask
+                auxiliary_loss = weight_matrix * (torch.mm(model.module.gcn.linear.weight, model.module.gcn.linear.weight.t()) + model.module.b + model.module.b_.t() - torch.log(self.rel_corr_matrix + 1e-8)) ** 2
+                auxiliary_loss = auxiliary_loss.mean()
+                loss += auxiliary_loss
+                #print(loss, auxiliary_loss)
 
                 output = torch.argmax(predict_re, dim=-1)
                 output = output.data.cpu().numpy()
@@ -665,7 +680,7 @@ class Config(object):
                 dis_t_2_h = -ht_pair_pos+10
 
                 predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
-                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix, num_entities, h_t_idx)
+                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix, num_entities, h_t_idx, self.rel_corr_matrix.expand(len(h_t_idx),-1,-1))
 
                 predict_re = torch.sigmoid(predict_re)
 

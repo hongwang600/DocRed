@@ -38,7 +38,7 @@ class Accuracy(object):
             return float(self.correct) / self.total
     def clear(self):
         self.correct = 0
-        self.total = 0 
+        self.total = 0
 
 class EviConfig(object):
     def __init__(self, args):
@@ -52,7 +52,7 @@ class EviConfig(object):
         self.max_length = 512
         self.pos_num = 2 * self.max_length
         self.entity_num = self.max_length
-        self.relation_num = 98
+        self.relation_num = 97
         self.coref_size = 20
         self.entity_type_size = 20
         self.max_epoch = 20
@@ -130,7 +130,7 @@ class EviConfig(object):
         self.use_gpu = use_gpu
     def set_epoch_range(self, epoch_range):
         self.epoch_range = epoch_range
-    
+
     def load_train_data(self):
         print("Reading training data...")
 

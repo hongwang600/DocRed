@@ -81,7 +81,6 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     np.save(os.path.join(out_path, name_prefix + suffix + '_rel_corr.npy'), rel_corr_matrix)
 
 
-    '''
 
     Ma = 0
     Ma_e = 0
@@ -250,7 +249,6 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     #np.save(os.path.join(out_path, name_prefix + suffix + '_rel_corr.npy'), rel_corr_matrix)
     print("Finish saving")
 
-    '''
 
 
 
