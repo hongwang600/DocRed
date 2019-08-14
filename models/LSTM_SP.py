@@ -37,7 +37,7 @@ class LSTM_SP(nn.Module):
 
         self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
 
-        #self.relation_embed = nn.Embedding(config.relation_num, hidden_size, padding_idx=0)
+        self.relation_embed = nn.Embedding(config.relation_num, hidden_size, padding_idx=0)
 
 
         self.linear_t = nn.Linear(hidden_size*2, hidden_size)  # *4 for 2layer
@@ -46,7 +46,7 @@ class LSTM_SP(nn.Module):
         self.linear_re = nn.Linear(hidden_size*3, 1)
 
 
-    def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, sent_h_mapping, sent_t_mapping, relation_label, relation_embed=None):
+    def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, sent_h_mapping, sent_t_mapping, relation_label):
         # para_size, char_size, bsz = context_idxs.size(1), context_char_idxs.size(2), context_idxs.size(0)
         # context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size, -1)
         # context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
@@ -54,15 +54,13 @@ class LSTM_SP(nn.Module):
         sent = torch.cat([self.word_emb(context_idxs) , self.coref_embed(pos), self.ner_emb(context_ner)], dim=-1)
 
         el = sent_h_mapping.size(1)
-        #re_embed = (self.relation_embed(relation_label).unsqueeze(1)).expand(-1, el, -1)
-        re_embed = relation_embed.unsqueeze(1).expand(-1, el, -1)
+        re_embed = (self.relation_embed(relation_label).unsqueeze(1)).expand(-1, el, -1)
 
         context_output = self.rnn(sent, context_lens)
         context_output = torch.relu(self.linear_t(context_output))
         start_re_output = torch.matmul(sent_h_mapping, context_output)
         end_re_output = torch.matmul(sent_t_mapping, context_output)
 
-        #print(start_re_output.size(), re_embed.size(), relation_label.size())
         sent_output = torch.cat([start_re_output, end_re_output, re_embed], dim=-1)
         predict_sent = self.linear_re(sent_output).squeeze(2)
 
