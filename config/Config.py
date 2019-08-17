@@ -566,6 +566,7 @@ class Config(object):
                 predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sents_idx, cooccur_matrix, num_entities, h_t_idx, self.rel_corr_matrix.expand(len(h_t_idx),-1,-1))
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
 
+                '''
                 #print(self.rel_corr_matrix)
                 less_max_mask = (self.rel_corr_matrix < 100).float()
                 greater_max_mask = (self.rel_corr_matrix >= 100).float()
@@ -574,6 +575,7 @@ class Config(object):
                 auxiliary_loss = auxiliary_loss.mean()
                 loss += auxiliary_loss
                 #print(loss, auxiliary_loss)
+                '''
 
                 output = torch.argmax(predict_re, dim=-1)
                 output = output.data.cpu().numpy()

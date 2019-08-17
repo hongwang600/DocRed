@@ -65,6 +65,19 @@ def get_corr_matrix(ins, rel2id, rel_num):
     corr_matrix = np.minimum(table_1, table_2).sum(0)
     return corr_matrix
 
+def data_analyse(data_file_name):
+    ori_data = json.load(open(data_file_name))
+    doc_lens = []
+    for i in range(len(ori_data)):
+        item = ori_data[i]
+        words = []
+        for sent in item['sents']:
+            words += sent
+        doc_lens.append(len(words))
+    print(np.mean(doc_lens),np.median(doc_lens), np.min(doc_lens), np.max(doc_lens))
+
+
+
 def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''):
     ori_data = json.load(open(data_file_name))
 
@@ -249,10 +262,10 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
 
 
 
-
+data_analyse(train_annotated_file_name)
 #init(train_distant_file_name, rel2id, max_length = 512, is_training = True, suffix='')
 #init(train_annotated_file_name, rel2id, max_length = 512, is_training = False, suffix='_train')
-init(dev_file_name, rel2id, max_length = 512, is_training = False, suffix='_dev')
-init(test_file_name, rel2id, max_length = 512, is_training = False, suffix='_test')
+#init(dev_file_name, rel2id, max_length = 512, is_training = False, suffix='_dev')
+#init(test_file_name, rel2id, max_length = 512, is_training = False, suffix='_test')
 
 
