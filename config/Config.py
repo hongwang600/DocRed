@@ -37,7 +37,7 @@ class Accuracy(object):
             return float(self.correct) / self.total
     def clear(self):
         self.correct = 0
-        self.total = 0 
+        self.total = 0
 
 class Config(object):
     def __init__(self, args):
@@ -79,6 +79,7 @@ class Config(object):
         self.test_relation_limit = 1800
         self.char_limit = 16
         self.sent_limit = 25
+        self.combined_sent_limit = 300
         self.dis2idx = np.zeros((512), dtype='int64')
         self.dis2idx[1] = 1
         self.dis2idx[2:] = 2
@@ -131,7 +132,7 @@ class Config(object):
         self.use_gpu = use_gpu
     def set_epoch_range(self, epoch_range):
         self.epoch_range = epoch_range
-    
+
     def load_train_data(self):
         print("Reading training data...")
         prefix = self.train_prefix
@@ -183,6 +184,20 @@ class Config(object):
         self.test_order = list(range(self.test_len))
         self.test_order.sort(key=lambda x: np.sum(self.data_test_word[x] > 0), reverse=True)
 
+    def combine_sents(self, h_idx, t_idx, vertexSet, sents_idx):
+        h_t_sent = []
+        for ins in vertexSet[h_idx]+vertexSet[t_idx]:
+            sent_id = ins['sent_id']
+            if sent_id not in h_t_sent:
+                h_t_sent.append(sent_id)
+        h_t_sent = sorted(h_t_sent)
+        print(sents_idx, h_t_sent)
+        h_t_sent_idx = sents_idx[h_t_sent].reshape(-1)
+        h_t_sent_idx = h_t_sent_idx[h_t_sent_idx>0]
+        h_t_sent_idx = h_t_sent_idx[:self.combined_sent_limit]
+        ret_sent = np.zeros(self.combined_sent_limit)
+        ret_sent[:len(h_t_sent_idx)] = h_t_sent_idx
+        return ret_sent
 
     def get_train_batch(self):
         random.shuffle(self.train_order)
@@ -204,6 +219,8 @@ class Config(object):
 
         ht_pair_pos = torch.LongTensor(self.batch_size, self.h_t_limit).cuda()
 
+        combined_sent_idxs = torch.LongTensor(self.batch_size, self.h_t_limit, self.combined_sent_limit).cuda()
+
         for b in range(self.train_batches):
             start_id = b * self.batch_size
             cur_bsz = min(self.batch_size, self.train_len - start_id)
@@ -217,6 +234,8 @@ class Config(object):
                 mapping.zero_()
 
             ht_pair_pos.zero_()
+
+            combined_sent_idxs.zero_()
 
 
             relation_label.fill_(IGNORE_INDEX)
@@ -242,12 +261,15 @@ class Config(object):
                 for label in labels:
                     idx2label[(label['h'], label['t'])].append(label['r'])
 
-
+                sents_idx = ins['sents_idx']
 
                 train_tripe = list(idx2label.keys())
                 for j, (h_idx, t_idx) in enumerate(train_tripe):
                     hlist = ins['vertexSet'][h_idx]
                     tlist = ins['vertexSet'][t_idx]
+
+                    h_t_combined_sents = self.combine_sents(h_idx, t_idx, ins['vertexSet'], sents_idx)
+                    combined_sent_idxs[i, j].copy_(torch.from_numpy(h_t_combined_sents))
 
                     for h in hlist:
                         h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
@@ -302,6 +324,7 @@ class Config(object):
 
             input_lengths = (context_idxs[:cur_bsz] > 0).long().sum(dim=1)
             max_c_len = int(input_lengths.max())
+            print(combined_sent_idxs[:1,:5])
 
             yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'context_pos': context_pos[:cur_bsz, :max_c_len].contiguous(),

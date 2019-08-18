@@ -13,6 +13,8 @@ out_path = args.out_path
 case_sensitive = False
 
 char_limit = 16
+sent_limit = 25
+word_size = 100
 train_distant_file_name = os.path.join(in_path, 'train_distant.json')
 train_annotated_file_name = os.path.join(in_path, 'train_annotated.json')
 dev_file_name = os.path.join(in_path, 'dev.json')
@@ -24,6 +26,15 @@ json.dump(id2rel, open(os.path.join(out_path, 'id2rel.json'), "w"))
 fact_in_train = set([])
 fact_in_dev_train = set([])
 
+def sents_2_idx(sents, word2id):
+    #sents_idx = np.zeros([sent_limit, word_size]) + word2id['BLANK']
+    sents_idx = []
+    start_idx = 0
+    for i, sent in enumerate(sents[:sent_limit]):
+        sents_idx.append(list(range(start_idx, start_idx+len(sent))))
+        start_idx += len(sent)
+    return sents_idx
+
 def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''):
 
     ori_data = json.load(open(data_file_name))
@@ -33,6 +44,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     Ma_e = 0
     data = []
     intrain = notintrain = notindevtrain = indevtrain = 0
+    word2id = json.load(open(os.path.join(out_path, "word2id.json")))
     for i in range(len(ori_data)):
         Ls = [0]
         L = 0
@@ -109,6 +121,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
         item['na_triple'] = na_triple
         item['Ls'] = Ls
         item['sents'] = ori_data[i]['sents']
+        item['sents_idx'] = sents_2_idx(ori_data[i]['sents'], word2id)
         data.append(item)
 
         Ma = max(Ma, len(vertexSet))
@@ -146,6 +159,8 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     sen_pos = np.zeros((sen_tot, max_length), dtype = np.int64)
     sen_ner = np.zeros((sen_tot, max_length), dtype = np.int64)
     sen_char = np.zeros((sen_tot, max_length, char_limit), dtype = np.int64)
+
+
 
     for i in range(len(ori_data)):
         item = ori_data[i]

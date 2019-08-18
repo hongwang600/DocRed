@@ -201,11 +201,16 @@ class EncoderLSTM(nn.Module):
         return self.init_hidden[i].expand(-1, bsz, -1).contiguous(), self.init_c[i].expand(-1, bsz, -1).contiguous()
 
     def forward(self, input, input_lengths=None):
+        lengths = torch.tensor(input_lengths)
+        lens, indices = torch.sort(lengths, 0, True)
+        input = input[indices]
+        _, _indices = torch.sort(indices, 0)
+
         bsz, slen = input.size(0), input.size(1)
         output = input
         outputs = []
-        if input_lengths is not None:
-            lens = input_lengths.data.cpu().numpy()
+        #if input_lengths is not None:
+        #    lens = input_lengths.data.cpu().numpy()
 
         for i in range(self.nlayers):
             hidden, c = self.get_init(bsz, i)
@@ -214,7 +219,7 @@ class EncoderLSTM(nn.Module):
             if input_lengths is not None:
                 output = rnn.pack_padded_sequence(output, lens, batch_first=True)
 
-            output, hidden = self.rnns[i](output, (hidden, c))
+            output, (hidden, c) = self.rnns[i](output, (hidden, c))
 
 
             if input_lengths is not None:
@@ -226,8 +231,10 @@ class EncoderLSTM(nn.Module):
                 outputs.append(hidden.permute(1, 0, 2).contiguous().view(bsz, -1))
             else:
                 outputs.append(output)
+        for i, output in enumerate(outputs):
+            outputs[i] = output[_indices]
         if self.concat:
-            return torch.cat(outputs, dim=2)
+            return torch.cat(outputs, dim=-1)
         return outputs[-1]
 
 class BiAttention(nn.Module):
