@@ -46,8 +46,12 @@ class BiLSTM(nn.Module):
 
         # input_size += char_hidden
 
-        self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
-        self.linear_re = nn.Linear(hidden_size*2, hidden_size)
+        self.input_size = input_size
+
+        #self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
+        self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, True)
+        self.linear_re = nn.Linear(hidden_size*2+config.dis_size*2, hidden_size)
+        self.linear_cls = nn.Linear(hidden_size, config.relation_num)
 
         if self.use_distance:
             self.dis_embed = nn.Embedding(20, config.dis_size, padding_idx=10)
@@ -56,7 +60,7 @@ class BiLSTM(nn.Module):
             self.bili = torch.nn.Bilinear(hidden_size, hidden_size, config.relation_num)
 
     def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, h_mapping, t_mapping,
-                relation_mask, dis_h_2_t, dis_t_2_h):
+                relation_mask, dis_h_2_t, dis_t_2_h, combined_sent_idxs, combined_sent_lengths):
         # para_size, char_size, bsz = context_idxs.size(1), context_char_idxs.size(2), context_idxs.size(0)
         # context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size, -1)
         # context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
@@ -67,6 +71,26 @@ class BiLSTM(nn.Module):
 
         if self.use_entity_type:
             sent = torch.cat([sent, self.ner_emb(context_ner)], dim=-1)
+
+        batch_size, h_t_num, word_size = combined_sent_idxs.size()
+        #print(batch_size, h_t_num, word_size)
+        i_ = torch.arange(batch_size).view(-1,1,1).expand(-1,h_t_num,word_size)
+        #print(i_[:5,:5,:5])
+        batch_sents = sent[i_, combined_sent_idxs]
+        #print(batch_sents.size())
+        batch_sents = batch_sents.view(-1, word_size, self.input_size)
+        flatten_sents_lengths = combined_sent_lengths.view(-1)
+        sent_emb = self.rnn(batch_sents, flatten_sents_lengths)
+        #print(sent_emb.size())
+        sent_emb = sent_emb.view(batch_size, h_t_num, -1)
+        #print(sent_emb.size())
+        sent_emb = torch.cat([sent_emb, self.dis_embed(dis_h_2_t), self.dis_embed(dis_t_2_h)], dim=-1)
+        sent_emb = torch.relu(self.linear_re(sent_emb))
+        #sm = nn.Softmax(-1)
+
+        result = self.linear_cls(sent_emb)
+        #print(result[:10,:10])
+        return result
 
         # sent = torch.cat([sent, context_ch], dim=-1)
         context_output = self.rnn(sent, context_lens)
@@ -211,6 +235,7 @@ class EncoderLSTM(nn.Module):
         outputs = []
         #if input_lengths is not None:
         #    lens = input_lengths.data.cpu().numpy()
+        lens[lens==0] = 1
 
         for i in range(self.nlayers):
             hidden, c = self.get_init(bsz, i)
