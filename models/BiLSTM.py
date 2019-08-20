@@ -22,8 +22,8 @@ class BiLSTM(nn.Module):
         self.word_emb.weight.data.copy_(torch.from_numpy(config.data_word_vec))
 
         self.word_emb.weight.requires_grad = False
-        self.use_entity_type = False
-        self.use_coreference = False
+        self.use_entity_type = True
+        self.use_coreference = True
         self.use_distance = True
 
         # performance is similar with char_embed
@@ -47,10 +47,10 @@ class BiLSTM(nn.Module):
 
         # input_size += char_hidden
 
-        #self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
-        self.att_enc = SimpleEncoder(input_size, 4, 1)
-        self.linear_re = nn.Linear(input_size, hidden_size)
-        self.ent_att_enc = SimpleEncoder(input_size, 4, 1)
+        self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
+        #self.att_enc = SimpleEncoder(input_size, 4, 1)
+        self.linear_re = nn.Linear(hidden_size*2, hidden_size)
+        self.ent_att_enc = SimpleEncoder(hidden_size*2, 4, 5)
 
         if self.use_distance:
             self.dis_embed = nn.Embedding(20, config.dis_size, padding_idx=10)
@@ -82,15 +82,16 @@ class BiLSTM(nn.Module):
             sent = torch.cat([sent, self.ner_emb(context_ner)], dim=-1)
 
         # sent = torch.cat([sent, context_ch], dim=-1)
-        #context_output = self.rnn(sent, context_lens)
+        context_output = self.rnn(sent, context_lens)
+        '''
         batch_size, doc_size = context_idxs.size()[:2]
         mask = self.mask_lengths(batch_size, doc_size, context_lens)
         context_output = self.att_enc(sent, mask)
+        '''
 
-
-        ent_mask = torch.zeros(mask.size()).cuda()
-        ent_mask[pos>0] = 1
-        context_output = self.ent_att_enc(context_output, ent_mask)
+        #ent_mask = torch.zeros(context_idxs.size()[:2]).cuda()
+        #ent_mask[pos>0] = 1
+        #context_output = self.ent_att_enc(context_output, ent_mask)
 
         context_output = torch.relu(self.linear_re(context_output))
 

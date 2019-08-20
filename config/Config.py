@@ -37,7 +37,7 @@ class Accuracy(object):
             return float(self.correct) / self.total
     def clear(self):
         self.correct = 0
-        self.total = 0 
+        self.total = 0
 
 class Config(object):
     def __init__(self, args):
@@ -131,7 +131,7 @@ class Config(object):
         self.use_gpu = use_gpu
     def set_epoch_range(self, epoch_range):
         self.epoch_range = epoch_range
-    
+
     def load_train_data(self):
         print("Reading training data...")
         prefix = self.train_prefix
