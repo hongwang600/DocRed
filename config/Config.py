@@ -80,7 +80,7 @@ class Config(object):
         self.test_relation_limit = 1800
         self.char_limit = 16
         self.sent_limit = 25
-        self.combined_sent_limit = 200
+        #self.combined_sent_limit = 200
         self.dis2idx = np.zeros((512), dtype='int64')
         self.dis2idx[1] = 1
         self.dis2idx[2:] = 2
@@ -202,6 +202,18 @@ class Config(object):
         #print(ret_sent)
         return ret_sent
 
+    def load_sent_idx(self, ins):
+        loaded_sent_idx = ins['sents_idx']
+        ret_np = np.zeros((self.sent_limit, self.word_size)) - 1
+        reverse_sent_idx = np.zeros((self.max_length)) - 1
+        start_idx = 0
+        for i, _ in enumerate(loaded_sent_idx):
+            _ = _[:self.word_size]
+            ret_np[i,:len(_)] = _
+            reverse_sent_idx[start_idx:start_idx+len(_)] = list(range(i*self.word_size, i*self.word_size+len(_)))
+            start_idx += len(_)
+        return ret_np, reverse_sent_idx
+
     def get_train_batch(self):
         random.shuffle(self.train_order)
 
@@ -222,7 +234,8 @@ class Config(object):
 
         ht_pair_pos = torch.LongTensor(self.batch_size, self.h_t_limit).cuda()
 
-        combined_sent_idxs = torch.LongTensor(self.batch_size, self.h_t_limit, self.combined_sent_limit).cuda()
+        sent_idxs = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
+        reverse_sent_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
 
         for b in range(self.train_batches):
             start_id = b * self.batch_size
@@ -238,8 +251,10 @@ class Config(object):
 
             ht_pair_pos.zero_()
 
-            combined_sent_idxs.zero_()
-            combined_sent_idxs -= 1
+            sent_idxs.zero_()
+            sent_idxs -= 1
+            reverse_sent_idxs.zero_()
+            reverse_sent_idxs -= 1
 
 
             relation_label.fill_(IGNORE_INDEX)
@@ -259,13 +274,15 @@ class Config(object):
                     pos_idx[i, j] = j+1
 
                 ins = self.train_file[index]
+                this_sent_idxs, this_reverse_sent_idxs = self.load_sent_idx(ins)
+                sent_idxs[i].copy_(torch.from_numpy(this_sent_idxs))
+                reverse_sent_idxs[i].copy_(torch.from_numpy(this_reverse_sent_idxs))
                 labels = ins['labels']
                 idx2label = defaultdict(list)
 
                 for label in labels:
                     idx2label[(label['h'], label['t'])].append(label['r'])
 
-                sents_idx = ins['sents_idx']
 
                 train_tripe = list(idx2label.keys())
                 for j, (h_idx, t_idx) in enumerate(train_tripe):
@@ -273,9 +290,6 @@ class Config(object):
                         break
                     hlist = ins['vertexSet'][h_idx]
                     tlist = ins['vertexSet'][t_idx]
-
-                    h_t_combined_sents = self.combine_sents(h_idx, t_idx, ins['vertexSet'], sents_idx)
-                    combined_sent_idxs[i, j].copy_(torch.from_numpy(h_t_combined_sents))
 
                     for h in hlist:
                         h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
@@ -301,21 +315,18 @@ class Config(object):
 
 
 
-                lower_bound = min(len(ins['na_triple']), len(train_tripe))
+                lower_bound = len(ins['na_triple'])
                 # random.shuffle(ins['na_triple'])
                 # lower_bound = max(20, len(train_tripe)*3)
 
 
-                sel_idx = random.sample(list(range(len(ins['na_triple']))), min(len(ins['na_triple']), lower_bound))
-                sel_ins = [ins['na_triple'][s_i] for s_i in sel_idx]
-                for j, (h_idx, t_idx) in enumerate(sel_ins, len(train_tripe)):
+                #sel_idx = random.sample(list(range(len(ins['na_triple']))), min(len(ins['na_triple']), lower_bound))
+                #sel_ins = [ins['na_triple'][s_i] for s_i in sel_idx]
+                for j, (h_idx, t_idx) in enumerate(ins['na_triple'], len(train_tripe)):
                     if j == self.h_t_limit:
                         break
                     hlist = ins['vertexSet'][h_idx]
                     tlist = ins['vertexSet'][t_idx]
-
-                    h_t_combined_sents = self.combine_sents(h_idx, t_idx, ins['vertexSet'], sents_idx)
-                    combined_sent_idxs[i, j].copy_(torch.from_numpy(h_t_combined_sents))
 
                     for h in hlist:
                         h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
@@ -338,9 +349,10 @@ class Config(object):
 
             input_lengths = (context_idxs[:cur_bsz] > 0).long().sum(dim=1)
             max_c_len = int(input_lengths.max())
-            combined_sent_lengths = (combined_sent_idxs >= 0).long().sum(dim=-1)
-            #print(combined_sent_idxs[:1,100:200])
-            #print(combined_sent_lengths)
+            sent_lengths = (sent_idxs[:cur_bsz] > 0).long().sum(-1)
+            print(reverse_sent_idxs[0])
+            #print(sent_idxs, sent_idxs.size())
+            #print(sent_lengths, sent_lengths.size())
 
             yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'context_pos': context_pos[:cur_bsz, :max_c_len].contiguous(),
@@ -354,8 +366,9 @@ class Config(object):
                    'context_ner': context_ner[:cur_bsz, :max_c_len].contiguous(),
                    'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'ht_pair_pos': ht_pair_pos[:cur_bsz, :max_h_t_cnt],
-                   'combined_sent_idxs': combined_sent_idxs[:cur_bsz, :max_h_t_cnt],
-                   'combined_sent_lengths': combined_sent_lengths[:cur_bsz, :max_h_t_cnt],
+                   'sent_idxs': sent_idxs[:cur_bsz],
+                   'sent_lengths': sent_lengths[:cur_bsz],
+                   'reverse_sent_idxs': reverse_sent_idxs[:cur_bsz, :max_c_len],
                    }
 
     def get_test_batch(self):
@@ -367,7 +380,8 @@ class Config(object):
         context_char_idxs = torch.LongTensor(self.test_batch_size, self.max_length, self.char_limit).cuda()
         relation_mask = torch.Tensor(self.test_batch_size, self.h_t_limit).cuda()
         ht_pair_pos = torch.LongTensor(self.test_batch_size, self.h_t_limit).cuda()
-        combined_sent_idxs = torch.LongTensor(self.batch_size, self.h_t_limit, self.combined_sent_limit).cuda()
+        sent_idxs = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
+        reverse_sent_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
 
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
@@ -380,8 +394,10 @@ class Config(object):
 
             ht_pair_pos.zero_()
 
-            combined_sent_idxs.zero_()
-            combined_sent_idxs -= 1
+            sent_idxs.zero_()
+            sent_idxs -= 1
+            reverse_sent_idxs.zero_()
+            reverse_sent_idxs -= 1
 
             max_h_t_cnt = 1
 
@@ -402,11 +418,13 @@ class Config(object):
 
                 idx2label = defaultdict(list)
                 ins = self.test_file[index]
+                this_sent_idxs, this_reverse_sent_idxs = self.load_sent_idx(ins)
+                sent_idxs[i].copy_(torch.from_numpy(this_sent_idxs))
+                reverse_sent_idxs[i].copy_(torch.from_numpy(this_reverse_sent_idxs))
 
                 for label in ins['labels']:
                     idx2label[(label['h'], label['t'])].append(label['r'])
 
-                sents_idx = ins['sents_idx']
 
                 L = len(ins['vertexSet'])
                 titles.append(ins['title'])
@@ -418,8 +436,6 @@ class Config(object):
                             hlist = ins['vertexSet'][h_idx]
                             tlist = ins['vertexSet'][t_idx]
 
-                            h_t_combined_sents = self.combine_sents(h_idx, t_idx, ins['vertexSet'], sents_idx)
-                            combined_sent_idxs[i, j].copy_(torch.from_numpy(h_t_combined_sents))
 
                             for h in hlist:
                                 h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
@@ -451,7 +467,7 @@ class Config(object):
 
             input_lengths = (context_idxs[:cur_bsz] > 0).long().sum(dim=1)
             max_c_len = int(input_lengths.max())
-            combined_sent_lengths = (combined_sent_idxs >= 0).long().sum(dim=-1)
+            sent_lengths = (sent_idxs[:cur_bsz] > 0).long().sum(-1)
 
 
             yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
@@ -467,8 +483,9 @@ class Config(object):
                    'titles': titles,
                    'ht_pair_pos': ht_pair_pos[:cur_bsz, :max_h_t_cnt],
                    'indexes': indexes,
-                   'combined_sent_idxs': combined_sent_idxs[:cur_bsz, :max_h_t_cnt],
-                   'combined_sent_lengths': combined_sent_lengths[:cur_bsz, :max_h_t_cnt],
+                   'sent_idxs': sent_idxs[:cur_bsz],
+                   'sent_lengths': sent_lengths[:cur_bsz],
+                   'reverse_sent_idxs': reverse_sent_idxs[:cur_bsz, :max_c_len],
                    }
 
     def train(self, model_pattern, model_name):
@@ -510,6 +527,8 @@ class Config(object):
         plt.title('Precision-Recall')
         plt.grid(True)
 
+        #model.eval()
+        #f1, auc, pr_x, pr_y = self.test(model, model_name)
 
         for epoch in range(self.max_epoch):
 
@@ -530,15 +549,16 @@ class Config(object):
                 context_ner = data['context_ner']
                 context_char_idxs = data['context_char_idxs']
                 ht_pair_pos = data['ht_pair_pos']
-                combined_sent_idxs = data['combined_sent_idxs']
-                combined_sent_lengths = data['combined_sent_lengths']
+                sent_idxs = data['sent_idxs']
+                sent_lengths = data['sent_lengths']
+                reverse_sent_idxs = data['reverse_sent_idxs']
 
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, combined_sent_idxs, combined_sent_lengths)
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
 
 
@@ -634,8 +654,9 @@ class Config(object):
                 context_char_idxs = data['context_char_idxs']
                 relation_mask = data['relation_mask']
                 ht_pair_pos = data['ht_pair_pos']
-                combined_sent_idxs = data['combined_sent_idxs']
-                combined_sent_lengths = data['combined_sent_lengths']
+                sent_idxs = data['sent_idxs']
+                sent_lengths = data['sent_lengths']
+                reverse_sent_idxs = data['reverse_sent_idxs']
 
                 titles = data['titles']
                 indexes = data['indexes']
@@ -644,7 +665,7 @@ class Config(object):
                 dis_t_2_h = -ht_pair_pos+10
 
                 predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
-                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, combined_sent_idxs, combined_sent_lengths)
+                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs)
 
                 predict_re = torch.sigmoid(predict_re)
 
