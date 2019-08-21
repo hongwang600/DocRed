@@ -28,6 +28,7 @@ model = {
     'LSTM': models.LSTM,
     'BiLSTM': models.BiLSTM,
     'ContextAware': models.ContextAware,
+    'sDNC': models.sDNC
 }
 
 con = config.Config(args)
