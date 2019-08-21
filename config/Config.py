@@ -350,7 +350,7 @@ class Config(object):
             input_lengths = (context_idxs[:cur_bsz] > 0).long().sum(dim=1)
             max_c_len = int(input_lengths.max())
             sent_lengths = (sent_idxs[:cur_bsz] > 0).long().sum(-1)
-            print(reverse_sent_idxs[0])
+            #print(reverse_sent_idxs[0])
             #print(sent_idxs, sent_idxs.size())
             #print(sent_lengths, sent_lengths.size())
 

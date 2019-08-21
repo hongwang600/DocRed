@@ -9,6 +9,7 @@ import numpy as np
 import math
 from torch.nn import init
 from torch.nn.utils import rnn
+from models.attention import SimpleEncoder
 
 
 class BiLSTM(nn.Module):
@@ -50,13 +51,25 @@ class BiLSTM(nn.Module):
 
         self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
         self.sent_rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
-        self.linear_re = nn.Linear(hidden_size*2, hidden_size)
+        #self.att_enc = SimpleEncoder(input_size, 4, 1)
+        self.linear_re = nn.Linear(hidden_size*2*2, hidden_size)
+        self.ent_att_enc = SimpleEncoder(hidden_size*2, 4, 1)
 
         if self.use_distance:
             self.dis_embed = nn.Embedding(20, config.dis_size, padding_idx=10)
             self.bili = torch.nn.Bilinear(hidden_size+config.dis_size, hidden_size+config.dis_size, config.relation_num)
         else:
             self.bili = torch.nn.Bilinear(hidden_size, hidden_size, config.relation_num)
+
+    def mask_lengths(self, batch_size, doc_size, lengths):
+        masks = torch.ones(batch_size, doc_size).cuda()
+        index_matrix = torch.arange(0, doc_size).expand(batch_size, -1).cuda()
+        index_matrix = index_matrix.long()
+        #doc_lengths = torch.tensor(lengths).view(-1,1)
+        doc_lengths = lengths.view(-1, 1)
+        doc_lengths_matrix = doc_lengths.expand(-1, doc_size)
+        masks[torch.ge(index_matrix-doc_lengths_matrix, 0)] = 0
+        return masks
 
     def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, h_mapping, t_mapping,
                 relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs):
@@ -86,8 +99,21 @@ class BiLSTM(nn.Module):
         sent_emb = sent_emb[i_, reverse_sent_idxs]
 
         # sent = torch.cat([sent, context_ch], dim=-1)
-        #context_output = self.rnn(sent, context_lens)
-        context_output = sent_emb
+        context_output = self.rnn(sent, context_lens)
+        context_output = torch.cat([context_output, sent_emb], dim=-1)
+        #context_output = sent_emb
+
+        '''
+        batch_size, doc_size = context_idxs.size()[:2]
+        mask = self.mask_lengths(batch_size, doc_size, context_lens)
+        context_output = self.att_enc(sent, mask)
+        '''
+
+        '''
+        ent_mask = torch.zeros(context_idxs.size()[:2]).cuda()
+        ent_mask[pos>0] = 1
+        context_output = self.ent_att_enc(context_output, ent_mask)
+        '''
 
         context_output = torch.relu(self.linear_re(context_output))
 
