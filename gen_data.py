@@ -3,6 +3,9 @@ import os
 import json
 from nltk.tokenize import WordPunctTokenizer
 import argparse
+from pytorch_transformers import *
+from models.bert import Bert
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--in_path', type = str, default =  "../data")
 parser.add_argument('--out_path', type = str, default = "prepro_data")
@@ -26,6 +29,8 @@ json.dump(id2rel, open(os.path.join(out_path, 'id2rel.json'), "w"))
 fact_in_train = set([])
 fact_in_dev_train = set([])
 
+bert = Bert(BertModel, 'bert-base-uncased')
+
 def sents_2_idx(sents, word2id):
     #sents_idx = np.zeros([sent_limit, word_size]) + word2id['BLANK']
     sents_idx = []
@@ -45,6 +50,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     data = []
     intrain = notintrain = notindevtrain = indevtrain = 0
     word2id = json.load(open(os.path.join(out_path, "word2id.json")))
+    '''
     for i in range(len(ori_data)):
         Ls = [0]
         L = 0
@@ -150,6 +156,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     char2id = json.load(open(os.path.join(out_path, "char2id.json")))
     # id2char= {v:k for k,v in char2id.items()}
     # json.dump(id2char, open("data/id2char.json", "w"))
+    '''
 
     word2id = json.load(open(os.path.join(out_path, "word2id.json")))
     ner2id = json.load(open(os.path.join(out_path, "ner2id.json")))
@@ -167,6 +174,10 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
         words = []
         for sent in item['sents']:
             words += sent
+
+        bert_tokens = bert.subword_tokenize_to_ids(words)
+        print(bert_tokens)
+        assert(False)
 
         for j, word in enumerate(words):
             word = word.lower()
