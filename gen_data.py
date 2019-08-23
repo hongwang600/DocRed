@@ -50,7 +50,6 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     data = []
     intrain = notintrain = notindevtrain = indevtrain = 0
     word2id = json.load(open(os.path.join(out_path, "word2id.json")))
-    '''
     for i in range(len(ori_data)):
         Ls = [0]
         L = 0
@@ -156,7 +155,6 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     char2id = json.load(open(os.path.join(out_path, "char2id.json")))
     # id2char= {v:k for k,v in char2id.items()}
     # json.dump(id2char, open("data/id2char.json", "w"))
-    '''
 
     word2id = json.load(open(os.path.join(out_path, "word2id.json")))
     ner2id = json.load(open(os.path.join(out_path, "ner2id.json")))
@@ -166,7 +164,9 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     sen_pos = np.zeros((sen_tot, max_length), dtype = np.int64)
     sen_ner = np.zeros((sen_tot, max_length), dtype = np.int64)
     sen_char = np.zeros((sen_tot, max_length, char_limit), dtype = np.int64)
-
+    bert_token = np.zeros((sen_tot, max_length), dtype = np.int64)
+    bert_mask = np.zeros((sen_tot, max_length), dtype = np.int64)
+    bert_starts = np.zeros((sen_tot, max_length), dtype = np.int64)
 
 
     for i in range(len(ori_data)):
@@ -175,9 +175,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
         for sent in item['sents']:
             words += sent
 
-        bert_tokens = bert.subword_tokenize_to_ids(words)
-        print(bert_tokens)
-        assert(False)
+        bert_token[i], bert_mask[i], bert_starts[i] = bert.subword_tokenize_to_ids(words)
 
         for j, word in enumerate(words):
             word = word.lower()
@@ -208,6 +206,9 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     np.save(os.path.join(out_path, name_prefix + suffix + '_pos.npy'), sen_pos)
     np.save(os.path.join(out_path, name_prefix + suffix + '_ner.npy'), sen_ner)
     np.save(os.path.join(out_path, name_prefix + suffix + '_char.npy'), sen_char)
+    np.save(os.path.join(out_path, name_prefix + suffix + '_bert_word.npy'), bert_token)
+    np.save(os.path.join(out_path, name_prefix + suffix + '_bert_mask.npy'), bert_mask)
+    np.save(os.path.join(out_path, name_prefix + suffix + '_bert_starts.npy'), bert_starts)
     print("Finish saving")
 
 

@@ -73,10 +73,10 @@ class Config(object):
         self.period = 50
 
         self.batch_size = 40
-        self.test_batch_size = 10
+        #self.test_batch_size = 10
         self.h_t_limit = 1800
 
-        #self.test_batch_size = self.batch_size
+        self.test_batch_size = self.batch_size
         self.test_relation_limit = 1800
         self.char_limit = 16
         self.sent_limit = 25
@@ -145,6 +145,10 @@ class Config(object):
         self.data_train_char = np.load(os.path.join(self.data_path, prefix+'_char.npy'))
         self.train_file = json.load(open(os.path.join(self.data_path, prefix+'.json')))
 
+        self.data_train_bert_word = np.load(os.path.join(self.data_path, prefix+'_bert_word.npy'))
+        self.data_train_bert_mask = np.load(os.path.join(self.data_path, prefix+'_bert_mask.npy'))
+        self.data_train_bert_starts = np.load(os.path.join(self.data_path, prefix+'_bert_starts.npy'))
+
         print("Finish reading")
 
         self.train_len = ins_num = self.data_train_word.shape[0]
@@ -170,6 +174,10 @@ class Config(object):
         self.data_test_ner = np.load(os.path.join(self.data_path, prefix+'_ner.npy'))
         self.data_test_char = np.load(os.path.join(self.data_path, prefix+'_char.npy'))
         self.test_file = json.load(open(os.path.join(self.data_path, prefix+'.json')))
+
+        self.data_test_bert_word = np.load(os.path.join(self.data_path, prefix+'_bert_word.npy'))
+        self.data_test_bert_mask = np.load(os.path.join(self.data_path, prefix+'_bert_mask.npy'))
+        self.data_test_bert_starts = np.load(os.path.join(self.data_path, prefix+'_bert_starts.npy'))
 
 
         self.test_len = self.data_test_word.shape[0]
@@ -224,6 +232,9 @@ class Config(object):
         relation_multi_label = torch.Tensor(self.batch_size, self.h_t_limit, self.relation_num).cuda()
         relation_mask = torch.Tensor(self.batch_size, self.h_t_limit).cuda()
 
+        context_masks = torch.LongTensor(self.batch_size, self.max_length).cuda()
+        context_starts = torch.LongTensor(self.batch_size, self.max_length).cuda()
+
         pos_idx = torch.LongTensor(self.batch_size, self.max_length).cuda()
 
         context_ner = torch.LongTensor(self.batch_size, self.max_length).cuda()
@@ -263,10 +274,14 @@ class Config(object):
 
 
             for i, index in enumerate(cur_batch):
-                context_idxs[i].copy_(torch.from_numpy(self.data_train_word[index, :]))
+                #context_idxs[i].copy_(torch.from_numpy(self.data_train_word[index, :]))
+                context_idxs[i].copy_(torch.from_numpy(self.data_train_bert_word[index, :]))
                 context_pos[i].copy_(torch.from_numpy(self.data_train_pos[index, :]))
                 context_char_idxs[i].copy_(torch.from_numpy(self.data_train_char[index, :]))
                 context_ner[i].copy_(torch.from_numpy(self.data_train_ner[index, :]))
+
+                context_masks[i].copy_(torch.from_numpy(self.data_train_bert_mask[index, :]))
+                context_starts[i].copy_(torch.from_numpy(self.data_train_bert_starts[index, :]))
 
                 for j in range(self.max_length):
                     if self.data_train_word[index, j]==0:
@@ -369,6 +384,8 @@ class Config(object):
                    'sent_idxs': sent_idxs[:cur_bsz],
                    'sent_lengths': sent_lengths[:cur_bsz],
                    'reverse_sent_idxs': reverse_sent_idxs[:cur_bsz, :max_c_len],
+                   'context_masks': context_masks[:cur_bsz, :max_c_len].contiguous(),
+                   'context_starts': context_starts[:cur_bsz, :max_c_len].contiguous(),
                    }
 
     def get_test_batch(self):
@@ -382,6 +399,9 @@ class Config(object):
         ht_pair_pos = torch.LongTensor(self.test_batch_size, self.h_t_limit).cuda()
         sent_idxs = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
         reverse_sent_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
+
+        context_masks = torch.LongTensor(self.batch_size, self.max_length).cuda()
+        context_starts = torch.LongTensor(self.batch_size, self.max_length).cuda()
 
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
@@ -409,12 +429,14 @@ class Config(object):
             titles = []
             indexes = []
             for i, index in enumerate(cur_batch):
-                context_idxs[i].copy_(torch.from_numpy(self.data_test_word[index, :]))
+                #context_idxs[i].copy_(torch.from_numpy(self.data_test_word[index, :]))
+                context_idxs[i].copy_(torch.from_numpy(self.data_test_bert_word[index, :]))
                 context_pos[i].copy_(torch.from_numpy(self.data_test_pos[index, :]))
                 context_char_idxs[i].copy_(torch.from_numpy(self.data_test_char[index, :]))
                 context_ner[i].copy_(torch.from_numpy(self.data_test_ner[index, :]))
 
-
+                context_masks[i].copy_(torch.from_numpy(self.data_test_bert_mask[index, :]))
+                context_starts[i].copy_(torch.from_numpy(self.data_test_bert_starts[index, :]))
 
                 idx2label = defaultdict(list)
                 ins = self.test_file[index]
@@ -486,6 +508,8 @@ class Config(object):
                    'sent_idxs': sent_idxs[:cur_bsz],
                    'sent_lengths': sent_lengths[:cur_bsz],
                    'reverse_sent_idxs': reverse_sent_idxs[:cur_bsz, :max_c_len],
+                   'context_masks': context_masks[:cur_bsz, :max_c_len].contiguous(),
+                   'context_starts': context_starts[:cur_bsz, :max_c_len].contiguous(),
                    }
 
     def train(self, model_pattern, model_name):
@@ -496,7 +520,7 @@ class Config(object):
         ori_model.cuda()
         model = nn.DataParallel(ori_model)
 
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()))
+        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5)
         # nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
         BCE = nn.BCEWithLogitsLoss(reduction='none')
 
@@ -553,12 +577,15 @@ class Config(object):
                 sent_lengths = data['sent_lengths']
                 reverse_sent_idxs = data['reverse_sent_idxs']
 
+                context_masks = data['context_masks']
+                context_starts = data['context_starts']
+
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs)
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
 
 
@@ -632,6 +659,9 @@ class Config(object):
         total_recall = 0
         top1_acc = have_label = 0
 
+        predicted_as_zero = 0
+        total_ins_num = 0
+
         def logging(s, print_=True, log_=True):
             if print_:
                 print(s)
@@ -657,6 +687,8 @@ class Config(object):
                 sent_idxs = data['sent_idxs']
                 sent_lengths = data['sent_lengths']
                 reverse_sent_idxs = data['reverse_sent_idxs']
+                context_masks = data['context_masks']
+                context_starts = data['context_starts']
 
                 titles = data['titles']
                 indexes = data['indexes']
@@ -665,7 +697,7 @@ class Config(object):
                 dis_t_2_h = -ht_pair_pos+10
 
                 predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
-                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs)
+                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
 
                 predict_re = torch.sigmoid(predict_re)
 
@@ -688,6 +720,8 @@ class Config(object):
                     for t_idx in range(L):
                         if h_idx != t_idx:
                             r = np.argmax(predict_re[i, j])
+                            predicted_as_zero += r==0
+                            total_ins_num += 1
                             if (h_idx, t_idx, r) in label:
                                 top1_acc += 1
 
@@ -723,6 +757,8 @@ class Config(object):
         test_result.sort(key = lambda x: x[1], reverse=True)
 
         print ('total_recall', total_recall)
+        print('predicted as zero', predicted_as_zero)
+        print('total ins num', total_ins_num)
         plt.xlabel('Recall')
         plt.ylabel('Precision')
         plt.ylim(0.2, 1.0)

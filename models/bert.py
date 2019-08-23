@@ -42,7 +42,7 @@ class Bert():
 
     def convert_tokens_to_ids(self, tokens, pad=True):
         token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
-        ids = torch.tensor([token_ids]).to(device=self.device)
+        ids = torch.tensor([token_ids])
         assert ids.size(1) < self.max_len
         if pad:
             padded_ids = torch.zeros(1, self.max_len).to(ids)
@@ -82,8 +82,9 @@ class Bert():
         """
         subwords = list(map(self.tokenizer.tokenize, tokens))
         subword_lengths = list(map(len, subwords))
-        subwords = [self.CLS] + list(self.flatten(subwords)) + [self.SEP]
+        subwords = [self.CLS] + list(self.flatten(subwords))[:509] + [self.SEP]
         token_start_idxs = 1 + np.cumsum([0] + subword_lengths[:-1])
+        token_start_idxs[token_start_idxs > 509] = 509
         return subwords, token_start_idxs
 
     def subword_tokenize_to_ids(self, tokens):
@@ -107,8 +108,8 @@ class Bert():
         subword_ids, mask = self.convert_tokens_to_ids(subwords)
         token_starts = torch.zeros(1, self.max_len).to(subword_ids)
         token_starts[0, token_start_idxs] = 1
-        return subword_ids, mask, token_starts
+        return subword_ids.numpy(), mask.numpy(), token_starts.numpy()
 
     def segment_ids(self, segment1_len, segment2_len):
         ids = [0] * segment1_len + [1] * segment2_len
-        return torch.tensor([ids]).to(device=self.device)
+        return torch.tensor([ids])
