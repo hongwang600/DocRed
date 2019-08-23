@@ -37,7 +37,7 @@ class Accuracy(object):
             return float(self.correct) / self.total
     def clear(self):
         self.correct = 0
-        self.total = 0 
+        self.total = 0
 
 class Config(object):
     def __init__(self, args):
@@ -131,7 +131,7 @@ class Config(object):
         self.use_gpu = use_gpu
     def set_epoch_range(self, epoch_range):
         self.epoch_range = epoch_range
-    
+
     def load_train_data(self):
         print("Reading training data...")
         prefix = self.train_prefix
@@ -733,4 +733,119 @@ class Config(object):
         model.load_state_dict(torch.load(os.path.join(self.checkpoint_dir, model_name)))
         model.cuda()
         model.eval()
+        self.test_anylyse(model, model_name, True, input_theta)
         f1, auc, pr_x, pr_y = self.test(model, model_name, True, input_theta)
+
+    def add_attr(self, attr_list, key, values):
+        for i, v in enumerate(values):
+            attr_list[key][i].append(v)
+
+    def test_anylyse(self, model, model_name, output=False, input_theta=-1):
+        data_idx = 0
+        eval_start_time = time.time()
+        # test_result_ignore = []
+        total_recall_ignore = 0
+
+        test_result = []
+        total_recall = 0
+        top1_acc = have_label = 0
+
+        total_pairs = 0
+        predicted_as_zero = 0
+
+        def logging(s, print_=True, log_=True):
+            if print_:
+                print(s)
+            if log_:
+                with open(os.path.join(os.path.join("log", model_name)), 'a+') as f_log:
+                    f_log.write(s + '\n')
+
+        attr_list = {}
+        attr_num = 4
+        attr_list['correct'] = [[] for a_i in range(attr_num)]
+        attr_list['wrong'] = [[] for a_i in range(attr_num)]
+        for r_i in range(self.relation_num):
+            attr_list[r_i] = [[] for a_i in range(attr_num)]
+
+
+        for data in self.get_test_batch():
+            with torch.no_grad():
+                context_idxs = data['context_idxs']
+                context_pos = data['context_pos']
+                h_mapping = data['h_mapping']
+                t_mapping = data['t_mapping']
+                labels = data['labels']
+                L_vertex = data['L_vertex']
+                input_lengths =  data['input_lengths']
+                context_ner = data['context_ner']
+                context_char_idxs = data['context_char_idxs']
+                relation_mask = data['relation_mask']
+                ht_pair_pos = data['ht_pair_pos']
+
+                titles = data['titles']
+                indexes = data['indexes']
+
+                dis_h_2_t = ht_pair_pos+10
+                dis_t_2_h = -ht_pair_pos+10
+
+                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
+                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h)
+
+                predict_re = torch.sigmoid(predict_re)
+
+            predict_re = predict_re.data.cpu().numpy()
+            dis_h_2_t = abs(ht_pair_pos.cpu().numpy())
+
+            for i in range(len(labels)):
+                label = labels[i]
+                index = indexes[i]
+
+
+                total_recall += len(label)
+                for l in label.values():
+                    if not l:
+                        total_recall_ignore += 1
+
+                L = L_vertex[i]
+                j = 0
+
+                for h_idx in range(L):
+                    for t_idx in range(L):
+                        if h_idx != t_idx:
+                            pred_r = np.argmax(predict_re[i, j])
+
+                            total_pairs += 1
+                            predicted_as_zero += pred_r==0
+
+                            for r in range(1, self.relation_num):
+                                if (h_idx, t_idx, r) in label:
+                                    if r==pred_r:
+                                        top1_acc += 1
+                                        self.add_attr(attr_list, 'correct', [1,0,dis_h_2_t[i,j], 0])
+                                        self.add_attr(attr_list, r, [1,0,dis_h_2_t[i,j], 0])
+                                    else:
+                                        self.add_attr(attr_list, 'wrong', [0,pred_r==0,dis_h_2_t[i,j], 0])
+                                        self.add_attr(attr_list, r, [0,pred_r==0,dis_h_2_t[i,j], 0])
+
+                            j += 1
+
+
+            data_idx += 1
+
+            if data_idx % self.period == 0:
+                print('| step {:3d} | time: {:5.2f}'.format(data_idx // self.period, (time.time() - eval_start_time)))
+                eval_start_time = time.time()
+
+        # test_result_ignore.sort(key=lambda x: x[1], reverse=True)
+        test_result.sort(key = lambda x: x[1], reverse=True)
+
+        print ('total_recall', total_recall)
+        print('all pairs', total_pairs)
+        print('predicted as zeros', predicted_as_zero)
+        print('top one accuracy', top1_acc)
+        for k in attr_list:
+            print(k)
+            for attr in attr_list[k]:
+                #print(attr)
+                print(np.mean(attr))
+            print(len(attr_list[k][0]))
