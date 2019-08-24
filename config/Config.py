@@ -347,6 +347,9 @@ class Config(object):
             L_vertex = []
             titles = []
             indexes = []
+
+            evi_nums = []
+
             for i, index in enumerate(cur_batch):
                 context_idxs[i].copy_(torch.from_numpy(self.data_test_word[index, :]))
                 context_pos[i].copy_(torch.from_numpy(self.data_test_pos[index, :]))
@@ -390,10 +393,13 @@ class Config(object):
 
                 max_h_t_cnt = max(max_h_t_cnt, j)
                 label_set = {}
+                evi_num_set = {}
                 for label in ins['labels']:
                     label_set[(label['h'], label['t'], label['r'])] = label['in'+self.train_prefix]
+                    evi_num_set[(label['h'], label['t'], label['r'])] = len(label['evidence'])
 
                 labels.append(label_set)
+                evi_nums.append(evi_num_set)
 
 
                 L_vertex.append(L)
@@ -417,7 +423,8 @@ class Config(object):
                    'relation_mask': relation_mask[:cur_bsz, :max_h_t_cnt],
                    'titles': titles,
                    'ht_pair_pos': ht_pair_pos[:cur_bsz, :max_h_t_cnt],
-                   'indexes': indexes
+                   'indexes': indexes,
+                   'evi_num_set': evi_nums,
                    }
 
     def train(self, model_pattern, model_name):
@@ -766,6 +773,10 @@ class Config(object):
         attr_list['wrong'] = [[] for a_i in range(attr_num)]
         for r_i in range(self.relation_num):
             attr_list[r_i] = [[] for a_i in range(attr_num)]
+        for d_i in range(10):
+            attr_list['dis_'+str(d_i)] = [[]]
+        for e_i in range(5):
+            attr_list['evi_'+str(e_i)] = [[]]
 
 
         for data in self.get_test_batch():
@@ -785,6 +796,8 @@ class Config(object):
                 titles = data['titles']
                 indexes = data['indexes']
 
+                evi_num_set = data['evi_num_set']
+
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
@@ -799,6 +812,7 @@ class Config(object):
             for i in range(len(labels)):
                 label = labels[i]
                 index = indexes[i]
+                evi_num = evi_num_set[i]
 
 
                 total_recall += len(label)
@@ -821,11 +835,13 @@ class Config(object):
                                 if (h_idx, t_idx, r) in label:
                                     if r==pred_r:
                                         top1_acc += 1
-                                        self.add_attr(attr_list, 'correct', [1,0,dis_h_2_t[i,j], 0])
-                                        self.add_attr(attr_list, r, [1,0,dis_h_2_t[i,j], 0])
+                                        self.add_attr(attr_list, 'correct', [1,0,dis_h_2_t[i,j], evi_num[(h_idx, t_idx, r)]])
+                                        self.add_attr(attr_list, r, [1,0,dis_h_2_t[i,j], evi_num[(h_idx, t_idx, r)]])
                                     else:
-                                        self.add_attr(attr_list, 'wrong', [0,pred_r==0,dis_h_2_t[i,j], 0])
-                                        self.add_attr(attr_list, r, [0,pred_r==0,dis_h_2_t[i,j], 0])
+                                        self.add_attr(attr_list, 'wrong', [0,pred_r==0,dis_h_2_t[i,j], evi_num[(h_idx, t_idx, r)]])
+                                        self.add_attr(attr_list, r, [0,pred_r==0,dis_h_2_t[i,j], evi_num[(h_idx, t_idx, r)]])
+                                    attr_list['dis_'+str(dis_h_2_t[i,j])][0].append(pred_r==r)
+                                    attr_list['evi_'+str(min(4,evi_num[(h_idx, t_idx, r)]))][0].append(pred_r==r)
 
                             j += 1
 
