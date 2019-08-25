@@ -57,6 +57,7 @@ class BiLSTM(nn.Module):
         #self.sent_rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
         #self.att_enc = SimpleEncoder(input_size, 4, 1)
         self.bert = BertModel.from_pretrained('bert-base-uncased')
+        #self.linear_re = nn.Linear(bert_hidden_size+config.coref_size+config.entity_type_size, hidden_size)
         self.linear_re = nn.Linear(bert_hidden_size, hidden_size)
         #self.ent_att_enc = SimpleEncoder(hidden_size*2, 4, 1)
 
@@ -139,6 +140,13 @@ class BiLSTM(nn.Module):
 
         #context_output = torch.relu(self.linear_re(context_output))
         #print('output_4',context_output[0])
+        '''
+        if self.use_coreference:
+            context_output = torch.cat([context_output, self.entity_embed(pos)], dim=-1)
+
+        if self.use_entity_type:
+            context_output = torch.cat([context_output, self.ner_emb(context_ner)], dim=-1)
+        '''
         context_output = self.linear_re(context_output)
 
 
