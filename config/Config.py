@@ -72,7 +72,7 @@ class Config(object):
 
         self.period = 50
 
-        self.batch_size = 20
+        self.batch_size = 30
         #self.test_batch_size = 10
         self.h_t_limit = 1800
 
@@ -322,11 +322,13 @@ class Config(object):
 
 
                     for r in label:
-                        relation_multi_label[i, j, r] = 1
+                        #relation_multi_label[i, j, r] = 1
+                        relation_multi_label[i, j, 1] = 1
 
                     relation_mask[i, j] = 1
                     rt = np.random.randint(len(label))
-                    relation_label[i, j] = label[rt]
+                    #relation_label[i, j] = label[rt]
+                    relation_label[i,j] = 1
 
 
 
@@ -337,7 +339,6 @@ class Config(object):
                 lower_bound = min(len(ins['na_triple']), len(train_tripe)*3)
                 sel_idx = random.sample(list(range(len(ins['na_triple']))), min(len(ins['na_triple']), lower_bound))
                 sel_ins = [ins['na_triple'][s_i] for s_i in sel_idx]
-                sel_ins = []
                 #for j, (h_idx, t_idx) in enumerate(ins['na_triple'], len(train_tripe)):
                 for j, (h_idx, t_idx) in enumerate(sel_ins, len(train_tripe)):
                     if j == self.h_t_limit:
@@ -483,8 +484,10 @@ class Config(object):
                 label_set = {}
                 evi_num_set = {}
                 for label in ins['labels']:
-                    label_set[(label['h'], label['t'], label['r'])] = label['in'+self.train_prefix]
-                    evi_num_set[(label['h'], label['t'], label['r'])] = len(label['evidence'])
+                    #label_set[(label['h'], label['t'], label['r'])] = label['in'+self.train_prefix]
+                    #evi_num_set[(label['h'], label['t'], label['r'])] = len(label['evidence'])
+                    label_set[(label['h'], label['t'], 1)] = label['in'+self.train_prefix]
+                    evi_num_set[(label['h'], label['t'], 1)] = len(label['evidence'])
 
                 labels.append(label_set)
                 evi_nums.append(evi_num_set)
