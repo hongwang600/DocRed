@@ -73,10 +73,10 @@ class Config(object):
         self.period = 50
 
         self.batch_size = 20
-        #self.test_batch_size = 10
+        self.test_batch_size = 40
         self.h_t_limit = 1800
 
-        self.test_batch_size = self.batch_size
+        #self.test_batch_size = self.batch_size
         self.test_relation_limit = 1800
         self.char_limit = 16
         self.sent_limit = 25
@@ -658,7 +658,7 @@ class Config(object):
         print("Storing best result...")
         print("Finish storing")
 
-    def test(self, model, model_name, output=False, input_theta=-1):
+    def test(self, model, model_name, output=False, input_theta=-1, two_phase=False, pretrain_model=None):
         data_idx = 0
         eval_start_time = time.time()
         # test_result_ignore = []
@@ -705,12 +705,18 @@ class Config(object):
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
+                if two_phase:
+                    is_rel_exist = pretrain_model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
+                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
+
                 predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
 
                 predict_re = torch.sigmoid(predict_re)
 
             predict_re = predict_re.data.cpu().numpy()
+            if two_phase:
+                is_rel_exist = is_rel_exist.cpu().numpy()
 
             for i in range(len(labels)):
                 label = labels[i]
@@ -748,7 +754,13 @@ class Config(object):
                                 # if not intrain:
                                 #     test_result_ignore.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]),  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
 
-                                test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
+                                if two_phase:
+                                    if is_rel_exist[i,j,1] > is_rel_exist[i,j,0]:
+                                        test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
+                                    else:
+                                        test_result.append( ((h_idx, t_idx, r) in label, -100.0, intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
+                                else:
+                                    test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
 
                             if flag:
                                 have_label += 1
@@ -851,14 +863,21 @@ class Config(object):
 
 
 
-    def testall(self, model_pattern, model_name, input_theta):#, ignore_input_theta):
+    def testall(self, model_pattern, model_name, input_theta, two_phase=False, pretrain_model_name=None):#, ignore_input_theta):
+        pretrain_model = None
+        if two_phase:
+            pretrain_model = model_pattern(config = self)
+            pretrain_model.load_state_dict(torch.load(os.path.join(self.checkpoint_dir, pretrain_model_name)))
+            pretrain_model.cuda()
+            pretrain_model.eval()
+
         model = model_pattern(config = self)
 
         model.load_state_dict(torch.load(os.path.join(self.checkpoint_dir, model_name)))
         model.cuda()
         model.eval()
         #self.test_anylyse(model, model_name, True, input_theta)
-        f1, auc, pr_x, pr_y = self.test(model, model_name, True, input_theta)
+        f1, auc, pr_x, pr_y = self.test(model, model_name, True, input_theta, two_phase, pretrain_model)
 
     def add_attr(self, attr_list, key, values):
         for i, v in enumerate(values):
