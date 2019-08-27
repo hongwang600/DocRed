@@ -400,11 +400,11 @@ class Config(object):
         context_char_idxs = torch.LongTensor(self.test_batch_size, self.max_length, self.char_limit).cuda()
         relation_mask = torch.Tensor(self.test_batch_size, self.h_t_limit).cuda()
         ht_pair_pos = torch.LongTensor(self.test_batch_size, self.h_t_limit).cuda()
-        sent_idxs = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
-        reverse_sent_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
+        sent_idxs = torch.LongTensor(self.test_batch_size, self.sent_limit, self.word_size).cuda()
+        reverse_sent_idxs = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
 
-        context_masks = torch.LongTensor(self.batch_size, self.max_length).cuda()
-        context_starts = torch.LongTensor(self.batch_size, self.max_length).cuda()
+        context_masks = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
+        context_starts = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
 
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
