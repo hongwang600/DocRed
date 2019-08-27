@@ -72,11 +72,11 @@ class Config(object):
 
         self.period = 50
 
-        self.batch_size = 20
-        self.test_batch_size = 40
+        self.batch_size = 30
+        #self.test_batch_size = 40
         self.h_t_limit = 1800
 
-        #self.test_batch_size = self.batch_size
+        self.test_batch_size = self.batch_size
         self.test_relation_limit = 1800
         self.char_limit = 16
         self.sent_limit = 25
@@ -399,11 +399,11 @@ class Config(object):
         context_char_idxs = torch.LongTensor(self.test_batch_size, self.max_length, self.char_limit).cuda()
         relation_mask = torch.Tensor(self.test_batch_size, self.h_t_limit).cuda()
         ht_pair_pos = torch.LongTensor(self.test_batch_size, self.h_t_limit).cuda()
-        sent_idxs = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
-        reverse_sent_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
+        sent_idxs = torch.LongTensor(self.test_batch_size, self.sent_limit, self.word_size).cuda()
+        reverse_sent_idxs = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
 
-        context_masks = torch.LongTensor(self.batch_size, self.max_length).cuda()
-        context_starts = torch.LongTensor(self.batch_size, self.max_length).cuda()
+        context_masks = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
+        context_starts = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
 
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
