@@ -50,7 +50,8 @@ class Config(object):
         self.is_training = True
         self.max_length = 512
         self.pos_num = 2 * self.max_length
-        self.entity_num = self.max_length
+        #self.entity_num = self.max_length
+        self.entity_num = 50
         self.relation_num = 97
 
         self.coref_size = 20
@@ -248,6 +249,10 @@ class Config(object):
         sent_idxs = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
         reverse_sent_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
 
+        ht_pair_idxs = torch.LongTensor(self.batch_size, self.h_t_limit, 2).cuda()
+        entity_mapping = torch.Tensor(self.batch_size, self.entity_num, self.max_length).cuda()
+        entity_lengths = torch.LongTensor(self.batch_size)
+
         for b in range(self.train_batches):
             start_id = b * self.batch_size
             cur_bsz = min(self.batch_size, self.train_len - start_id)
@@ -266,6 +271,10 @@ class Config(object):
             sent_idxs -= 1
             reverse_sent_idxs.zero_()
             reverse_sent_idxs -= 1
+
+            ht_pair_idxs.zero_()
+            entity_mapping.zero_()
+            entity_lengths.zero_()
 
 
             relation_label.fill_(IGNORE_INDEX)
@@ -298,6 +307,10 @@ class Config(object):
                 for label in labels:
                     idx2label[(label['h'], label['t'])].append(label['r'])
 
+                entity_lengths[i] = len(ins['vertexSet'])
+                for e_i, entity_ins in enumerate(ins['vertexSet']):
+                    for ent in entity_ins:
+                        entity_mapping[i, e_i, ent['pos'][0]:ent['pos'][1]] = 1.0/len(entity_ins)/(ent['pos'][1]-ent['pos'][0])
 
                 train_tripe = list(idx2label.keys())
                 for j, (h_idx, t_idx) in enumerate(train_tripe):
@@ -305,6 +318,8 @@ class Config(object):
                         break
                     hlist = ins['vertexSet'][h_idx]
                     tlist = ins['vertexSet'][t_idx]
+
+                    ht_pair_idxs[i, j, 0], ht_pair_idxs[i,j,1] = h_idx, t_idx
 
                     for h in hlist:
                         h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
@@ -371,6 +386,9 @@ class Config(object):
             #print(reverse_sent_idxs[0])
             #print(sent_idxs, sent_idxs.size())
             #print(sent_lengths, sent_lengths.size())
+            #print(ht_pair_idxs[0,:10,:], entity_mapping[0][:3][:40], entity_lengths)
+            #print(entity_mapping[0,0][entity_mapping[0,0]>0])
+            #print(torch.sum(entity_mapping[0,1]>0))
 
             yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'context_pos': context_pos[:cur_bsz, :max_c_len].contiguous(),
@@ -389,6 +407,9 @@ class Config(object):
                    'reverse_sent_idxs': reverse_sent_idxs[:cur_bsz, :max_c_len],
                    'context_masks': context_masks[:cur_bsz, :max_c_len].contiguous(),
                    'context_starts': context_starts[:cur_bsz, :max_c_len].contiguous(),
+                   'ht_pair_idxs': ht_pair_idxs[:cur_bsz, :max_h_t_cnt],
+                   'entity_mapping': entity_mapping[:cur_bsz, :, :max_c_len],
+                   'entity_lengths': entity_lengths[:cur_bsz],
                    }
 
     def get_test_batch(self):
@@ -406,6 +427,10 @@ class Config(object):
         context_masks = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
         context_starts = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
 
+        ht_pair_idxs = torch.LongTensor(self.batch_size, self.h_t_limit, 2).cuda()
+        entity_mapping = torch.Tensor(self.batch_size, self.entity_num, self.max_length).cuda()
+        entity_lengths = torch.LongTensor(self.batch_size)
+
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
             cur_bsz = min(self.test_batch_size, self.test_len - start_id)
@@ -421,6 +446,10 @@ class Config(object):
             sent_idxs -= 1
             reverse_sent_idxs.zero_()
             reverse_sent_idxs -= 1
+
+            ht_pair_idxs.zero_()
+            entity_mapping.zero_()
+            entity_lengths.zero_()
 
             max_h_t_cnt = 1
 
@@ -454,6 +483,11 @@ class Config(object):
                     idx2label[(label['h'], label['t'])].append(label['r'])
 
 
+                entity_lengths[i] = len(ins['vertexSet'])
+                for e_i, entity_ins in enumerate(ins['vertexSet']):
+                    for ent in entity_ins:
+                        entity_mapping[i, e_i, ent['pos'][0]:ent['pos'][1]] = 1.0/len(entity_ins)/(ent['pos'][1]-ent['pos'][0])
+
                 L = len(ins['vertexSet'])
                 titles.append(ins['title'])
 
@@ -464,6 +498,7 @@ class Config(object):
                             hlist = ins['vertexSet'][h_idx]
                             tlist = ins['vertexSet'][t_idx]
 
+                            ht_pair_idxs[i, j, 0], ht_pair_idxs[i,j,1] = h_idx, t_idx
 
                             for h in hlist:
                                 h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
@@ -522,7 +557,39 @@ class Config(object):
                    'context_masks': context_masks[:cur_bsz, :max_c_len].contiguous(),
                    'context_starts': context_starts[:cur_bsz, :max_c_len].contiguous(),
                    'evi_num_set': evi_nums,
+                   'ht_pair_idxs': ht_pair_idxs[:cur_bsz, :max_h_t_cnt],
+                   'entity_mapping': entity_mapping[:cur_bsz, :, :max_c_len],
+                   'entity_lengths': entity_lengths[:cur_bsz],
                    }
+
+    def entity_loss(self, predict_re, entity_embed, ht_pair_idxs, relation_mask):
+        batch_size = len(predict_re)
+        predict_re_idx = (predict_re.argmax(-1)!=0).float()
+        entity_num = entity_embed.size(1)
+        t_embed = entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,1]]
+        h_idxs = ht_pair_idxs[:,:,0]
+        ent_h_idx = h_idxs.expand(entity_num, -1, -1)
+        ent_pos = torch.arange(entity_num).view(entity_num, 1, 1).cuda()
+        sel_idxs = (ent_h_idx == ent_pos).float()
+        sel_idxs = (sel_idxs * predict_re_idx * relation_mask).unsqueeze(-2)
+        #print(sel_idxs.sum(-1).size())
+        norm_sel_idxs = sel_idxs/(sel_idxs.sum(-1).unsqueeze(-1)+1e-6)
+        t_embed = t_embed.expand(entity_num, -1, -1, -1)
+        avg_embed = torch.matmul(norm_sel_idxs, t_embed).squeeze(-2)
+        avg_embed = avg_embed.permute(1,0,2)
+        #print(avg_embed, entity_embed)
+        #print(avg_embed.size())
+        #print(sel_idxs.size(), predict_re_idx.size(),relation_mask.size())
+        sel_idxs = sel_idxs.sum(-1).squeeze(-1)
+        sel_idxs = (sel_idxs.permute(1,0) > 0).float()
+        loss = ((avg_embed-entity_embed)**2).mean(-1)*sel_idxs
+        #print(loss.size(), relation_mask.size())
+        #print(loss)
+        loss = torch.mean(loss)
+        #print(loss)
+        #assert(False)
+        return loss
+
 
     def train(self, model_pattern, model_name):
 
@@ -592,13 +659,19 @@ class Config(object):
                 context_masks = data['context_masks']
                 context_starts = data['context_starts']
 
+                ht_pair_idxs = data['ht_pair_idxs']
+                entity_mapping = data['entity_mapping']
+                entity_lengths = data['entity_lengths']
+
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
+                predict_re, entity_embed = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
+                        ht_pair_idxs, entity_mapping, entity_lengths)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
+                loss += self.entity_loss(predict_re, entity_embed, ht_pair_idxs, relation_mask)
 
 
                 output = torch.argmax(predict_re, dim=-1)
@@ -661,7 +734,7 @@ class Config(object):
         print("Storing best result...")
         print("Finish storing")
 
-    def test(self, model, model_name, output=False, input_theta=-1):
+    def test(self, model, model_name, output=False, input_theta=-1, two_phase=False, pretrain_model=None):
         data_idx = 0
         eval_start_time = time.time()
         # test_result_ignore = []
@@ -702,18 +775,29 @@ class Config(object):
                 context_masks = data['context_masks']
                 context_starts = data['context_starts']
 
+                ht_pair_idxs = data['ht_pair_idxs']
+                entity_mapping = data['entity_mapping']
+                entity_lengths = data['entity_lengths']
+
                 titles = data['titles']
                 indexes = data['indexes']
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
+                if two_phase:
+                    is_rel_exist = pretrain_model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
+
+                predict_re,_ = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
+                                   h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
+                                   ht_pair_idxs, entity_mapping, entity_lengths)
 
                 predict_re = torch.sigmoid(predict_re)
 
             predict_re = predict_re.data.cpu().numpy()
+            if two_phase:
+                is_rel_exist = is_rel_exist.cpu().numpy()
 
             for i in range(len(labels)):
                 label = labels[i]
@@ -751,7 +835,13 @@ class Config(object):
                                 # if not intrain:
                                 #     test_result_ignore.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]),  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
 
-                                test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
+                                if two_phase:
+                                    if is_rel_exist[i,j,1] > is_rel_exist[i,j,0]:
+                                        test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
+                                    else:
+                                        test_result.append( ((h_idx, t_idx, r) in label, -100.0, intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
+                                else:
+                                    test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), intrain,  titles[i], self.id2rel[r], index, h_idx, t_idx, r) )
 
                             if flag:
                                 have_label += 1
@@ -854,14 +944,21 @@ class Config(object):
 
 
 
-    def testall(self, model_pattern, model_name, input_theta):#, ignore_input_theta):
+    def testall(self, model_pattern, model_name, input_theta, two_phase=False, pretrain_model_name=None):#, ignore_input_theta):
+        pretrain_model = None
+        if two_phase:
+            pretrain_model = model_pattern(config = self)
+            pretrain_model.load_state_dict(torch.load(os.path.join(self.checkpoint_dir, pretrain_model_name)))
+            pretrain_model.cuda()
+            pretrain_model.eval()
+
         model = model_pattern(config = self)
 
         model.load_state_dict(torch.load(os.path.join(self.checkpoint_dir, model_name)))
         model.cuda()
         model.eval()
         #self.test_anylyse(model, model_name, True, input_theta)
-        f1, auc, pr_x, pr_y = self.test(model, model_name, True, input_theta)
+        f1, auc, pr_x, pr_y = self.test(model, model_name, True, input_theta, two_phase, pretrain_model)
 
     def add_attr(self, attr_list, key, values):
         for i, v in enumerate(values):
@@ -969,6 +1066,8 @@ class Config(object):
                                         self.add_attr(attr_list, r, [0,pred_r==0,dis_h_2_t[i,j], evi_num[(h_idx, t_idx, r)]])
                                     attr_list['dis_'+str(dis_h_2_t[i,j])][0].append(pred_r==r)
                                     attr_list['evi_'+str(min(4,evi_num[(h_idx, t_idx, r)]))][0].append(pred_r==r)
+                                if predict_re[i, j, r] >= 0.99999:
+                                    test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), self.id2rel[r],  h_idx, t_idx, r, titles[i]) )
 
                             j += 1
 
@@ -992,3 +1091,4 @@ class Config(object):
                 #print(attr)
                 print(np.mean(attr))
             print(len(attr_list[k][0]))
+        json.dump(test_result, open('analyse_result.json','w'))
