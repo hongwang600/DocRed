@@ -55,10 +55,11 @@ class BiLSTM(nn.Module):
 
         #self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
         #self.sent_rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
-        #self.att_enc = SimpleEncoder(input_size, 4, 1)
+        self.att_enc = SimpleEncoder(bert_hidden_size, 4, 4)
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         #self.linear_re = nn.Linear(bert_hidden_size+config.coref_size+config.entity_type_size, hidden_size)
         self.linear_re = nn.Linear(bert_hidden_size, hidden_size)
+        self.linear_cls = nn.Linear(hidden_size+config.dis_size, config.relation_num)
         #self.ent_att_enc = SimpleEncoder(hidden_size*2, 4, 1)
 
         if self.use_distance:
@@ -80,7 +81,8 @@ class BiLSTM(nn.Module):
         return masks
 
     def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, h_mapping, t_mapping,
-                relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts):
+                relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
+                ht_pair_idxs, entity_mapping, entity_lengths):
         # para_size, char_size, bsz = context_idxs.size(1), context_char_idxs.size(2), context_idxs.size(0)
         # context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size, -1)
         # context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
@@ -147,11 +149,29 @@ class BiLSTM(nn.Module):
         if self.use_entity_type:
             context_output = torch.cat([context_output, self.ner_emb(context_ner)], dim=-1)
         '''
-        context_output = self.linear_re(context_output)
 
+        entity_embed = torch.matmul(entity_mapping, context_output)
+        batch_size, entity_num = entity_mapping.size()[:2]
+        mask = self.mask_lengths(batch_size, entity_num, entity_lengths)
+        #print(mask)
+        #entity_embed = self.att_enc(entity_embed, mask)
 
-        start_re_output = torch.matmul(h_mapping, context_output)
-        end_re_output = torch.matmul(t_mapping, context_output)
+        proj_entity_embed = self.linear_re(entity_embed)
+
+        #print(entity_mapping.size(), h_mapping.size())
+        start_re_output = proj_entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,0]]
+        end_re_output = proj_entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,1]]
+        '''
+        s_t_rep = start_re_output - end_re_output
+        if self.use_distance:
+            s_t_rep = torch.cat([s_t_rep, self.dis_embed(dis_h_2_t)], dim=-1)
+        predict_re = self.linear_cls(s_t_rep)
+        return predict_re, entity_embed*mask.unsqueeze(-1)
+        '''
+        #print(h_mapping.size(), start_re_output.size())
+
+        #start_re_output = torch.matmul(h_mapping, context_output)
+        #end_re_output = torch.matmul(t_mapping, context_output)
 
 
         if self.use_distance:
@@ -169,7 +189,7 @@ class BiLSTM(nn.Module):
 
         #print(predict_re[0])
 
-        return predict_re
+        return predict_re, entity_embed*mask.unsqueeze(-1)
 
 
 class LockedDropout(nn.Module):
