@@ -985,6 +985,8 @@ class Config(object):
                                         self.add_attr(attr_list, r, [0,pred_r==0,dis_h_2_t[i,j], evi_num[(h_idx, t_idx, r)]])
                                     attr_list['dis_'+str(dis_h_2_t[i,j])][0].append(pred_r==r)
                                     attr_list['evi_'+str(min(4,evi_num[(h_idx, t_idx, r)]))][0].append(pred_r==r)
+                                if predict_re[i, j, r] >= 0.99999:
+                                    test_result.append( ((h_idx, t_idx, r) in label, float(predict_re[i,j,r]), self.id2rel[r],  h_idx, t_idx, r, titles[i]) )
 
                             j += 1
 
@@ -1008,3 +1010,4 @@ class Config(object):
                 #print(attr)
                 print(np.mean(attr))
             print(len(attr_list[k][0]))
+        json.dump(test_result, open('analyse_result.json','w'))
