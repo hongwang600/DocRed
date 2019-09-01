@@ -150,17 +150,18 @@ class BiLSTM(nn.Module):
             context_output = torch.cat([context_output, self.ner_emb(context_ner)], dim=-1)
         '''
 
+        context_output = self.linear_re(context_output)
         entity_embed = torch.matmul(entity_mapping, context_output)
         batch_size, entity_num = entity_mapping.size()[:2]
         mask = self.mask_lengths(batch_size, entity_num, entity_lengths)
         #print(mask)
         #entity_embed = self.att_enc(entity_embed, mask)
 
-        proj_entity_embed = self.linear_re(entity_embed)
+        #proj_entity_embed = self.linear_re(entity_embed)
 
         #print(entity_mapping.size(), h_mapping.size())
-        start_re_output = proj_entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,0]]
-        end_re_output = proj_entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,1]]
+        #start_re_output = proj_entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,0]].contiguous()
+        #end_re_output = proj_entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,1]].contiguous()
         '''
         s_t_rep = start_re_output - end_re_output
         if self.use_distance:
@@ -170,8 +171,8 @@ class BiLSTM(nn.Module):
         '''
         #print(h_mapping.size(), start_re_output.size())
 
-        #start_re_output = torch.matmul(h_mapping, context_output)
-        #end_re_output = torch.matmul(t_mapping, context_output)
+        start_re_output = torch.matmul(h_mapping, context_output)
+        end_re_output = torch.matmul(t_mapping, context_output)
 
 
         if self.use_distance:

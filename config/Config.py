@@ -73,7 +73,7 @@ class Config(object):
 
         self.period = 50
 
-        self.batch_size = 30
+        self.batch_size = 40
         #self.test_batch_size = 10
         self.h_t_limit = 1800
 
@@ -562,9 +562,10 @@ class Config(object):
                    'entity_lengths': entity_lengths[:cur_bsz],
                    }
 
-    def entity_loss(self, predict_re, entity_embed, ht_pair_idxs, relation_mask):
-        batch_size = len(predict_re)
-        predict_re_idx = (predict_re.argmax(-1)!=0).float()
+    def entity_loss(self, relation_label, entity_embed, ht_pair_idxs, relation_mask):
+        batch_size = len(relation_label)
+        #predict_re_idx = (predict_re.argmax(-1)!=0).float()
+        predict_re_idx = (relation_label!=0).float()
         entity_num = entity_embed.size(1)
         t_embed = entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,1]]
         h_idxs = ht_pair_idxs[:,:,0]
@@ -671,7 +672,7 @@ class Config(object):
                 predict_re, entity_embed = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
                         ht_pair_idxs, entity_mapping, entity_lengths)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
-                loss += self.entity_loss(predict_re, entity_embed, ht_pair_idxs, relation_mask)
+                loss += self.entity_loss(relation_label, entity_embed, ht_pair_idxs, relation_mask)
 
 
                 output = torch.argmax(predict_re, dim=-1)
