@@ -174,6 +174,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
         words = []
         for sent in item['sents']:
             words += sent
+            words[-1] = "[CLS]"
 
         bert_token[i], bert_mask[i], bert_starts[i] = bert.subword_tokenize_to_ids(words)
 

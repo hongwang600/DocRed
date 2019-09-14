@@ -72,7 +72,7 @@ class Config(object):
 
         self.period = 50
 
-        self.batch_size = 30
+        self.batch_size = 20
         #self.test_batch_size = 40
         self.h_t_limit = 1800
 
@@ -337,7 +337,7 @@ class Config(object):
                 lower_bound = min(len(ins['na_triple']), len(train_tripe)*3)
                 sel_idx = random.sample(list(range(len(ins['na_triple']))), min(len(ins['na_triple']), lower_bound))
                 sel_ins = [ins['na_triple'][s_i] for s_i in sel_idx]
-                sel_ins = []
+                #sel_ins = []
                 #for j, (h_idx, t_idx) in enumerate(ins['na_triple'], len(train_tripe)):
                 for j, (h_idx, t_idx) in enumerate(sel_ins, len(train_tripe)):
                     if j == self.h_t_limit:

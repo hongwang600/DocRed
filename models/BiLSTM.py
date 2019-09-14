@@ -59,6 +59,7 @@ class BiLSTM(nn.Module):
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         #self.linear_re = nn.Linear(bert_hidden_size+config.coref_size+config.entity_type_size, hidden_size)
         self.linear_re = nn.Linear(bert_hidden_size, hidden_size)
+        self.linear_sp = nn.Linear(hidden_size*3, 1)
         #self.ent_att_enc = SimpleEncoder(hidden_size*2, 4, 1)
 
         if self.use_distance:
