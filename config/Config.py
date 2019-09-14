@@ -322,11 +322,13 @@ class Config(object):
 
 
                     for r in label:
-                        relation_multi_label[i, j, r] = 1
+                        #relation_multi_label[i, j, r] = 1
+                        relation_multi_label[i, j, 1] = 1
 
                     relation_mask[i, j] = 1
-                    rt = np.random.randint(len(label))
-                    relation_label[i, j] = label[rt]
+                    #rt = np.random.randint(len(label))
+                    #relation_label[i, j] = label[rt]
+                    relation_label[i, j] = 1
 
 
 
@@ -483,8 +485,10 @@ class Config(object):
                 label_set = {}
                 evi_num_set = {}
                 for label in ins['labels']:
-                    label_set[(label['h'], label['t'], label['r'])] = label['in'+self.train_prefix]
-                    evi_num_set[(label['h'], label['t'], label['r'])] = len(label['evidence'])
+                    #label_set[(label['h'], label['t'], label['r'])] = label['in'+self.train_prefix]
+                    #evi_num_set[(label['h'], label['t'], label['r'])] = len(label['evidence'])
+                    label_set[(label['h'], label['t'], 1)] = label['in'+self.train_prefix]
+                    evi_num_set[(label['h'], label['t'], 1)] = len(label['evidence'])
 
                 labels.append(label_set)
                 evi_nums.append(evi_num_set)
