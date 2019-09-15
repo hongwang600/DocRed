@@ -44,6 +44,7 @@ class Config(object):
         self.acc_NA = Accuracy()
         self.acc_not_NA = Accuracy()
         self.acc_total = Accuracy()
+        self.acc_evi_sent = Accuracy()
         self.data_path = './prepro_data'
         self.use_bag = False
         self.use_gpu = True
@@ -248,6 +249,9 @@ class Config(object):
         sent_idxs = torch.LongTensor(self.batch_size, self.sent_limit, self.word_size).cuda()
         reverse_sent_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
 
+        evi_sent_labels = torch.Tensor(self.batch_size, self.h_t_limit, self.sent_limit).cuda()
+        evi_sent_masks = torch.Tensor(self.batch_size, self.h_t_limit, self.sent_limit).cuda()
+
         for b in range(self.train_batches):
             start_id = b * self.batch_size
             cur_bsz = min(self.batch_size, self.train_len - start_id)
@@ -266,6 +270,9 @@ class Config(object):
             sent_idxs -= 1
             reverse_sent_idxs.zero_()
             reverse_sent_idxs -= 1
+
+            evi_sent_labels.zero_()
+            evi_sent_masks.zero_()
 
 
             relation_label.fill_(IGNORE_INDEX)
@@ -289,15 +296,17 @@ class Config(object):
                     pos_idx[i, j] = j+1
 
                 ins = self.train_file[index]
+                num_sents = len(ins['sents'])
                 this_sent_idxs, this_reverse_sent_idxs = self.load_sent_idx(ins)
                 sent_idxs[i].copy_(torch.from_numpy(this_sent_idxs))
                 reverse_sent_idxs[i].copy_(torch.from_numpy(this_reverse_sent_idxs))
                 labels = ins['labels']
                 idx2label = defaultdict(list)
+                idx2evidence = defaultdict(list)
 
                 for label in labels:
                     idx2label[(label['h'], label['t'])].append(label['r'])
-
+                    idx2evidence[(label['h'], label['t'])] += label['evidence']
 
                 train_tripe = list(idx2label.keys())
                 for j, (h_idx, t_idx) in enumerate(train_tripe):
@@ -324,6 +333,9 @@ class Config(object):
                     for r in label:
                         #relation_multi_label[i, j, r] = 1
                         relation_multi_label[i, j, 1] = 1
+                    for evi_idx in idx2evidence[(h_idx, t_idx)]:
+                        evi_sent_labels[i,j,evi_idx] = 1
+                    evi_sent_masks[i,j,:num_sents] = 1
 
                     relation_mask[i, j] = 1
                     #rt = np.random.randint(len(label))
@@ -361,6 +373,8 @@ class Config(object):
                         ht_pair_pos[i, j] = -int(self.dis2idx[-delta_dis])
                     else:
                         ht_pair_pos[i, j] = int(self.dis2idx[delta_dis])
+
+                    evi_sent_masks[i,j,:num_sents] = 1
                 #print(max_h_t_cnt)
 
                 max_h_t_cnt = max(max_h_t_cnt, len(train_tripe) + lower_bound)
@@ -390,6 +404,8 @@ class Config(object):
                    'reverse_sent_idxs': reverse_sent_idxs[:cur_bsz, :max_c_len],
                    'context_masks': context_masks[:cur_bsz, :max_c_len].contiguous(),
                    'context_starts': context_starts[:cur_bsz, :max_c_len].contiguous(),
+                   'evi_sent_labels': evi_sent_labels[:cur_bsz,:max_h_t_cnt],
+                   'evi_sent_masks': evi_sent_masks[:cur_bsz,:max_h_t_cnt],
                    }
 
     def get_test_batch(self):
@@ -407,6 +423,9 @@ class Config(object):
         context_masks = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
         context_starts = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
 
+        evi_sent_labels = torch.Tensor(self.batch_size, self.h_t_limit, self.sent_limit).cuda()
+        evi_sent_masks = torch.Tensor(self.batch_size, self.h_t_limit, self.sent_limit).cuda()
+
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
             cur_bsz = min(self.test_batch_size, self.test_len - start_id)
@@ -422,6 +441,9 @@ class Config(object):
             sent_idxs -= 1
             reverse_sent_idxs.zero_()
             reverse_sent_idxs -= 1
+
+            evi_sent_labels.zero_()
+            evi_sent_masks.zero_()
 
             max_h_t_cnt = 1
 
@@ -446,14 +468,16 @@ class Config(object):
                 context_starts[i].copy_(torch.from_numpy(self.data_test_bert_starts[index, :]))
 
                 idx2label = defaultdict(list)
+                idx2evidence = defaultdict(list)
                 ins = self.test_file[index]
+                num_sents = len(ins['sents'])
                 this_sent_idxs, this_reverse_sent_idxs = self.load_sent_idx(ins)
                 sent_idxs[i].copy_(torch.from_numpy(this_sent_idxs))
                 reverse_sent_idxs[i].copy_(torch.from_numpy(this_reverse_sent_idxs))
 
                 for label in ins['labels']:
                     idx2label[(label['h'], label['t'])].append(label['r'])
-
+                    idx2evidence[(label['h'], label['t'])] += label['evidence']
 
                 L = len(ins['vertexSet'])
                 titles.append(ins['title'])
@@ -478,6 +502,12 @@ class Config(object):
                                 ht_pair_pos[i, j] = -int(self.dis2idx[-delta_dis])
                             else:
                                 ht_pair_pos[i, j] = int(self.dis2idx[delta_dis])
+
+                            if (h_idx,t_idx) in idx2evidence:
+                                for evi_idx in idx2evidence[(h_idx, t_idx)]:
+                                    evi_sent_labels[i,j,evi_idx] = 1
+                            evi_sent_masks[i,j,:num_sents] = 1
+
                             j += 1
 
 
@@ -523,6 +553,8 @@ class Config(object):
                    'context_masks': context_masks[:cur_bsz, :max_c_len].contiguous(),
                    'context_starts': context_starts[:cur_bsz, :max_c_len].contiguous(),
                    'evi_num_set': evi_nums,
+                   'evi_sent_labels': evi_sent_labels[:cur_bsz,:max_h_t_cnt],
+                   'evi_sent_masks': evi_sent_masks[:cur_bsz,:max_h_t_cnt],
                    }
 
     def train(self, model_pattern, model_name):
@@ -572,6 +604,7 @@ class Config(object):
             self.acc_NA.clear()
             self.acc_not_NA.clear()
             self.acc_total.clear()
+            self.acc_evi_sent.clear()
 
             for data in self.get_train_batch():
 
@@ -593,13 +626,22 @@ class Config(object):
                 context_masks = data['context_masks']
                 context_starts = data['context_starts']
 
+                evi_sent_labels = data['evi_sent_labels']
+                evi_sent_masks = data['evi_sent_masks']
+                #print(evi_sent_labels.size())
+                #print(evi_sent_masks.size())
+
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
+                predict_re, predict_evi = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
+                #print(h_mapping.size(),predict_evi.size(),evi_sent_labels.size(),evi_sent_masks.size())
+                evi_loss = torch.sum(BCE(predict_evi, evi_sent_labels) * evi_sent_masks) / torch.sum(evi_sent_masks)
+                #print(evi_loss)
+                loss += evi_loss
 
 
                 output = torch.argmax(predict_re, dim=-1)
@@ -610,6 +652,14 @@ class Config(object):
                 optimizer.step()
 
                 relation_label = relation_label.data.cpu().numpy()
+
+                predict_evi = predict_evi.view(-1)
+                evi_sent_labels = evi_sent_labels.contiguous().view(-1)
+                sel_idx = evi_sent_labels==1
+                predict_evi = predict_evi[sel_idx]
+                evi_sent_labels = evi_sent_labels[sel_idx]
+                for e_i in range(len(evi_sent_labels)):
+                    self.acc_evi_sent.add(predict_evi[e_i]>0)
 
                 for i in range(output.shape[0]):
                     for j in range(output.shape[1]):
@@ -624,13 +674,14 @@ class Config(object):
 
                         self.acc_total.add(output[i][j] == label)
 
+
                 global_step += 1
                 total_loss += loss.item()
 
                 if global_step % self.period == 0 :
                     cur_loss = total_loss / self.period
                     elapsed = time.time() - start_time
-                    logging('| epoch {:2d} | step {:4d} |  ms/b {:5.2f} | train loss {:5.3f} | NA acc: {:4.2f} | not NA acc: {:4.2f}  | tot acc: {:4.2f} '.format(epoch, global_step, elapsed * 1000 / self.period, cur_loss, self.acc_NA.get(), self.acc_not_NA.get(), self.acc_total.get()))
+                    logging('| epoch {:2d} | step {:4d} |  ms/b {:5.2f} | train loss {:5.3f} | NA acc: {:4.2f} | not NA acc: {:4.2f}  | tot acc: {:4.2f}  | evi recall: {:4.2f} '.format(epoch, global_step, elapsed * 1000 / self.period, cur_loss, self.acc_NA.get(), self.acc_not_NA.get(), self.acc_total.get(), self.acc_evi_sent.get()))
                     total_loss = 0
                     start_time = time.time()
 
@@ -675,6 +726,10 @@ class Config(object):
         predicted_as_zero = 0
         total_ins_num = 0
 
+        evi_sent_correct = 0.0
+        evi_sent_recall = 0.0
+        evi_sent_acc = 0.0
+
         def logging(s, print_=True, log_=True):
             if print_:
                 print(s)
@@ -706,6 +761,9 @@ class Config(object):
                 titles = data['titles']
                 indexes = data['indexes']
 
+                evi_sent_labels = data['evi_sent_labels']
+                evi_sent_masks = data['evi_sent_masks']
+
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
@@ -713,10 +771,20 @@ class Config(object):
                     is_rel_exist = pretrain_model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
 
-                predict_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
+                predict_re, predict_evi = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
 
                 predict_re = torch.sigmoid(predict_re)
+
+            predict_evi = predict_evi.view(-1)
+            evi_sent_labels = evi_sent_labels.contiguous().view(-1)
+            evi_sent_masks = evi_sent_masks.contiguous().view(-1)
+            sel_idx = evi_sent_labels==1
+            evi_sent_acc += torch.sum(predict_evi[evi_sent_masks==1]>0).item()
+            predict_evi = predict_evi[sel_idx]
+            evi_sent_labels = evi_sent_labels[sel_idx]
+            evi_sent_recall += len(evi_sent_labels)
+            evi_sent_correct += torch.sum(predict_evi>0).item()
 
             predict_re = predict_re.data.cpu().numpy()
             if two_phase:
@@ -785,6 +853,8 @@ class Config(object):
         print('predicted as zero', predicted_as_zero)
         print('total ins num', total_ins_num)
         print('top1_acc', top1_acc)
+        logging('evi recall: '+str(evi_sent_correct/evi_sent_recall))
+        logging('evi accuracy'+str(evi_sent_correct/evi_sent_acc))
         plt.xlabel('Recall')
         plt.ylabel('Precision')
         plt.ylim(0.2, 1.0)

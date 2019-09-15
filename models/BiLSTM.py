@@ -113,6 +113,8 @@ class BiLSTM(nn.Module):
         #print(context_idxs.size())
         context_output = self.bert(context_idxs, attention_mask=context_masks)[0]
         #print('output_1',context_output[0])
+        first_cls = context_output[:,0].unsqueeze(1)
+        #print(first_cls.size())
         context_output = [layer[starts.nonzero().squeeze(1)]
                    for layer, starts in zip(context_output, context_starts)]
         #print('output_2',context_output[0])
@@ -120,6 +122,7 @@ class BiLSTM(nn.Module):
         #print('output_3',context_output[0])
         #print(context_output.size())
         context_output = torch.nn.functional.pad(context_output,(0,0,0,context_idxs.size(-1)-context_output.size(-2)))
+        cls_context_output = torch.cat([first_cls, context_output],-2)
         #print('output_4',context_output[0])
         #print(context_output.size())
         #assert(False)
@@ -148,7 +151,8 @@ class BiLSTM(nn.Module):
         if self.use_entity_type:
             context_output = torch.cat([context_output, self.ner_emb(context_ner)], dim=-1)
         '''
-        context_output = self.linear_re(context_output)
+        cls_context_output = self.linear_re(cls_context_output)
+        context_output = cls_context_output[:,1:,:]
 
 
         start_re_output = torch.matmul(h_mapping, context_output)
@@ -168,9 +172,26 @@ class BiLSTM(nn.Module):
             #predict_re = self.linear_re(rep)
             predict_re = self.bili(start_re_output, end_re_output)
 
-        #print(predict_re[0])
+        cumsum_idx = torch.cat([torch.ones(context_idxs.size(0),1).long().cuda(), sent_lengths[:,:-1]],-1)
+        cumsum_idx = torch.cumsum(cumsum_idx,-1)
+        cumsum_idx[:,0]=0
 
-        return predict_re
+        #print(context_idxs[torch.arange(context_idxs.size(0)).view(-1,1).cuda(),cumsum_idx])
+        #print(cumsum_idx[0])
+        #print(sent_lengths[0])
+        #print(context_idxs[0], context_starts[0])
+        #assert(False)
+
+        #print(predict_re[0])
+        sent_embeds = cls_context_output[torch.arange(context_idxs.size(0)).view(-1,1).cuda(),cumsum_idx]
+        sent_embeds = sent_embeds.unsqueeze(1).expand(-1,start_re_output.size(1),-1,-1)
+        start_re_output = start_re_output.unsqueeze(-2).expand(-1,-1,sent_embeds.size(-2),-1)
+        end_re_output = end_re_output.unsqueeze(-2).expand(-1,-1,sent_embeds.size(-2),-1)
+        s_t_sent_rep = torch.cat([start_re_output, end_re_output, sent_embeds],-1)
+        sent_pred = self.linear_sp(s_t_sent_rep).squeeze(-1)
+        #print(sent_pred.size())
+
+        return predict_re, sent_pred
 
 
 class LockedDropout(nn.Module):
