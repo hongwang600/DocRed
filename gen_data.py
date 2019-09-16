@@ -180,7 +180,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
         vertexSet = item['vertexSet']
         for idx, vertex in enumerate(vertexSet, 1):
             for v in vertex:
-                words[v['pos'][0]:v['pos'][1]] = '[MASK]'
+                words[v['pos'][0]:v['pos'][1]] = ['[MASK]']*(v['pos'][1]-v['pos'][0])
 
         bert_token[i], bert_mask[i], bert_starts[i] = bert.subword_tokenize_to_ids(words)
 
