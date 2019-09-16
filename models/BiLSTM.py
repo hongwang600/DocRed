@@ -59,8 +59,8 @@ class BiLSTM(nn.Module):
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         #self.linear_re = nn.Linear(bert_hidden_size+config.coref_size+config.entity_type_size, hidden_size)
         self.linear_re = nn.Linear(bert_hidden_size, hidden_size)
-        self.linear_cls = nn.Linear(hidden_size+config.dis_size, config.relation_num)
-        #self.ent_att_enc = SimpleEncoder(hidden_size*2, 4, 1)
+        self.ent_att_enc = SimpleEncoder(hidden_size+config.coref_size+config.entity_type_size, 4, 5)
+        self.linear_cls = nn.Linear(hidden_size+config.coref_size+config.entity_type_size, config.entity_num)
 
         if self.use_distance:
             self.dis_embed = nn.Embedding(20, config.dis_size, padding_idx=10)
@@ -87,75 +87,25 @@ class BiLSTM(nn.Module):
         # context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size, -1)
         # context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
 
-        '''
-        sent = self.word_emb(context_idxs)
-        if self.use_coreference:
-            sent = torch.cat([sent, self.entity_embed(pos)], dim=-1)
 
-        if self.use_entity_type:
-            sent = torch.cat([sent, self.ner_emb(context_ner)], dim=-1)
-
-        batch_size, sent_limit, word_size = sent_idxs.size()
-        #print(batch_size, h_t_num, word_size)
-        i_ = torch.arange(batch_size).view(-1,1,1).expand(-1,sent_limit,word_size)
-        #print(i_[:5,:5,:5])
-        batch_sents = sent[i_, sent_idxs]
-        #print(batch_sents.size())
-        batch_sents = batch_sents.view(-1, word_size, self.input_size)
-        flatten_sents_lengths = sent_lengths.view(-1)
-        sent_emb = self.rnn(batch_sents, flatten_sents_lengths)
-        #print(sent_emb.size())
-        sent_emb = sent_emb.view(batch_size, sent_limit*word_size, -1)
-        i_ = torch.arange(batch_size).view(-1,1).expand(reverse_sent_idxs.size())
-        sent_emb = sent_emb[i_, reverse_sent_idxs]
-        '''
-
-        # sent = torch.cat([sent, context_ch], dim=-1)
-        #print(context_idxs.size())
         context_output = self.bert(context_idxs, attention_mask=context_masks)[0]
-        #print('output_1',context_output[0])
         context_output = [layer[starts.nonzero().squeeze(1)]
                    for layer, starts in zip(context_output, context_starts)]
-        #print('output_2',context_output[0])
         context_output = pad_sequence(context_output, batch_first=True, padding_value=-1)
-        #print('output_3',context_output[0])
-        #print(context_output.size())
         context_output = torch.nn.functional.pad(context_output,(0,0,0,context_idxs.size(-1)-context_output.size(-2)))
-        #print('output_4',context_output[0])
-        #print(context_output.size())
-        #assert(False)
-        #context_output = self.rnn(sent, context_lens)
-        #context_output = torch.cat([context_output, sent_emb], dim=-1)
-        #context_output = sent_emb
 
-        '''
-        batch_size, doc_size = context_idxs.size()[:2]
-        mask = self.mask_lengths(batch_size, doc_size, context_lens)
-        context_output = self.att_enc(sent, mask)
-        '''
 
-        '''
-        ent_mask = torch.zeros(context_idxs.size()[:2]).cuda()
-        ent_mask[pos>0] = 1
-        context_output = self.ent_att_enc(context_output, ent_mask)
-        '''
-
-        #context_output = torch.relu(self.linear_re(context_output))
-        #print('output_4',context_output[0])
-        '''
+        context_output = self.linear_re(context_output)
         if self.use_coreference:
             context_output = torch.cat([context_output, self.entity_embed(pos)], dim=-1)
 
         if self.use_entity_type:
             context_output = torch.cat([context_output, self.ner_emb(context_ner)], dim=-1)
-        '''
-
-        context_output = self.linear_re(context_output)
         entity_embed = torch.matmul(entity_mapping, context_output)
         batch_size, entity_num = entity_mapping.size()[:2]
         mask = self.mask_lengths(batch_size, entity_num, entity_lengths)
         #print(mask)
-        #entity_embed = self.att_enc(entity_embed, mask)
+        entity_embed = self.att_enc(entity_embed, mask)
 
         #proj_entity_embed = self.linear_re(entity_embed)
 
