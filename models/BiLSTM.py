@@ -105,7 +105,10 @@ class BiLSTM(nn.Module):
         batch_size, entity_num = entity_mapping.size()[:2]
         mask = self.mask_lengths(batch_size, entity_num, entity_lengths)
         #print(mask)
-        entity_embed = self.att_enc(entity_embed, mask)
+        entity_embed = self.ent_att_enc(entity_embed, mask)
+        pred_rel = self.linear_cls(entity_embed)
+        #print(pred_rel.size())
+        return pred_rel
 
         #proj_entity_embed = self.linear_re(entity_embed)
 

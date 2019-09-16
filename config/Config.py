@@ -253,6 +253,9 @@ class Config(object):
         entity_mapping = torch.Tensor(self.batch_size, self.entity_num, self.max_length).cuda()
         entity_lengths = torch.LongTensor(self.batch_size)
 
+        entity_wise_labels = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
+        entity_wise_masks = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
+
         for b in range(self.train_batches):
             start_id = b * self.batch_size
             cur_bsz = min(self.batch_size, self.train_len - start_id)
@@ -275,6 +278,9 @@ class Config(object):
             ht_pair_idxs.zero_()
             entity_mapping.zero_()
             entity_lengths.zero_()
+
+            entity_wise_labels.zero_()
+            entity_wise_masks.zero_()
 
 
             relation_label.fill_(IGNORE_INDEX)
@@ -312,6 +318,14 @@ class Config(object):
                     for ent in entity_ins:
                         entity_mapping[i, e_i, ent['pos'][0]:ent['pos'][1]] = 1.0/len(entity_ins)/(ent['pos'][1]-ent['pos'][0])
 
+                L = len(ins['vertexSet'])
+                train_tripe = list(idx2label.keys())
+                for j, (h_idx, t_idx) in enumerate(train_tripe):
+                    entity_wise_labels[i,h_idx,t_idx] = 1
+                entity_wise_masks[i,:L,:L] = 1
+
+
+                '''
                 train_tripe = list(idx2label.keys())
                 for j, (h_idx, t_idx) in enumerate(train_tripe):
                     if j == self.h_t_limit:
@@ -379,6 +393,7 @@ class Config(object):
                 #print(max_h_t_cnt)
 
                 max_h_t_cnt = max(max_h_t_cnt, len(train_tripe) + lower_bound)
+                '''
 
 
             input_lengths = (context_idxs[:cur_bsz] > 0).long().sum(dim=1)
@@ -411,6 +426,8 @@ class Config(object):
                    'ht_pair_idxs': ht_pair_idxs[:cur_bsz, :max_h_t_cnt],
                    'entity_mapping': entity_mapping[:cur_bsz, :, :max_c_len],
                    'entity_lengths': entity_lengths[:cur_bsz],
+                   'entity_wise_labels': entity_wise_labels[:cur_bsz],
+                   'entity_wise_masks': entity_wise_masks[:cur_bsz],
                    }
 
     def get_test_batch(self):
@@ -432,6 +449,9 @@ class Config(object):
         entity_mapping = torch.Tensor(self.batch_size, self.entity_num, self.max_length).cuda()
         entity_lengths = torch.LongTensor(self.batch_size)
 
+        entity_wise_labels = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
+        entity_wise_masks = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
+
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
             cur_bsz = min(self.test_batch_size, self.test_len - start_id)
@@ -451,6 +471,9 @@ class Config(object):
             ht_pair_idxs.zero_()
             entity_mapping.zero_()
             entity_lengths.zero_()
+
+            entity_wise_labels.zero_()
+            entity_wise_masks.zero_()
 
             max_h_t_cnt = 1
 
@@ -492,7 +515,14 @@ class Config(object):
                 L = len(ins['vertexSet'])
                 titles.append(ins['title'])
 
+                train_tripe = list(idx2label.keys())
+                for h_idx in range(L):
+                    for t_idx in range(L):
+                        if (h_idx,t_idx) in idx2label:
+                            entity_wise_labels[i,h_idx,t_idx] = 1
+                entity_wise_masks[i,:L,:L] = 1
                 j = 0
+                '''
                 for h_idx in range(L):
                     for t_idx in range(L):
                         if h_idx != t_idx:
@@ -514,6 +544,7 @@ class Config(object):
                             else:
                                 ht_pair_pos[i, j] = int(self.dis2idx[delta_dis])
                             j += 1
+                '''
 
 
                 max_h_t_cnt = max(max_h_t_cnt, j)
@@ -561,6 +592,8 @@ class Config(object):
                    'ht_pair_idxs': ht_pair_idxs[:cur_bsz, :max_h_t_cnt],
                    'entity_mapping': entity_mapping[:cur_bsz, :, :max_c_len],
                    'entity_lengths': entity_lengths[:cur_bsz],
+                   'entity_wise_labels': entity_wise_labels[:cur_bsz],
+                   'entity_wise_masks': entity_wise_masks[:cur_bsz],
                    }
 
     def entity_loss(self, relation_label, entity_embed, ht_pair_idxs, relation_mask):
@@ -635,12 +668,16 @@ class Config(object):
 
         #model.eval()
         #f1, auc, pr_x, pr_y = self.test(model, model_name)
+        #print(f1)
 
         for epoch in range(self.max_epoch):
 
             self.acc_NA.clear()
             self.acc_not_NA.clear()
             self.acc_total.clear()
+            entity_wise_recall = 1.0
+            entity_wise_acc = 1.0
+            entity_wise_corr = 1.0
 
             for data in self.get_train_batch():
 
@@ -666,24 +703,38 @@ class Config(object):
                 entity_mapping = data['entity_mapping']
                 entity_lengths = data['entity_lengths']
 
+                entity_wise_labels = data['entity_wise_labels']
+                entity_wise_masks = data['entity_wise_masks']
+
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
 
-                predict_re, entity_embed = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
+                entity_wise_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
                         ht_pair_idxs, entity_mapping, entity_lengths)
-                loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
-                loss += 10*self.entity_loss(relation_label, entity_embed, ht_pair_idxs, relation_mask)
+                #print(entity_wise_labels.size(),entity_wise_re.size())
+                loss = torch.sum(BCE(entity_wise_re, entity_wise_labels)*entity_wise_masks) /  (torch.sum(entity_wise_masks))
+                #print(loss)
+                #assert(0)
 
 
-                output = torch.argmax(predict_re, dim=-1)
-                output = output.data.cpu().numpy()
+                #output = torch.argmax(predict_re, dim=-1)
+                #output = output.data.cpu().numpy()
 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
+                flat_entity_wise_re = entity_wise_re.view(-1)
+                flat_entity_wise_labels = entity_wise_labels.view(-1)
+                flat_entity_wise_masks = entity_wise_masks.view(-1)
+                entity_wise_recall += flat_entity_wise_labels.sum().item()
+                entity_wise_acc += (flat_entity_wise_re[flat_entity_wise_masks==1] > 0).sum().item()
+                entity_wise_corr += ((flat_entity_wise_re>0)&(flat_entity_wise_labels==1)).sum().item()
+                #print(entity_wise_recall, entity_wise_acc, entity_wise_corr)
+
+                '''
                 relation_label = relation_label.data.cpu().numpy()
 
                 for i in range(output.shape[0]):
@@ -698,6 +749,7 @@ class Config(object):
                             self.acc_not_NA.add(output[i][j] == label)
 
                         self.acc_total.add(output[i][j] == label)
+                '''
 
                 global_step += 1
                 total_loss += loss.item()
@@ -705,7 +757,11 @@ class Config(object):
                 if global_step % self.period == 0 :
                     cur_loss = total_loss / self.period
                     elapsed = time.time() - start_time
-                    logging('| epoch {:2d} | step {:4d} |  ms/b {:5.2f} | train loss {:5.3f} | NA acc: {:4.2f} | not NA acc: {:4.2f}  | tot acc: {:4.2f} '.format(epoch, global_step, elapsed * 1000 / self.period, cur_loss, self.acc_NA.get(), self.acc_not_NA.get(), self.acc_total.get()))
+                    #logging('| epoch {:2d} | step {:4d} |  ms/b {:5.2f} | train loss {:5.3f} | NA acc: {:4.2f} | not NA acc: {:4.2f}  | tot acc: {:4.2f} '.format(epoch, global_step, elapsed * 1000 / self.period, cur_loss, self.acc_NA.get(), self.acc_not_NA.get(), self.acc_total.get()))
+                    logging('| epoch {:2d} | step {:4d} |  ms/b {:5.2f} |'.format(epoch, global_step, elapsed * 1000 / self.period, cur_loss))
+                    logging('acc: '+str(entity_wise_corr/float(entity_wise_acc)))
+                    logging('recall: '+str(entity_wise_corr/float(entity_wise_recall)))
+                    logging('loss: '+str(cur_loss))
                     total_loss = 0
                     start_time = time.time()
 
@@ -749,6 +805,9 @@ class Config(object):
 
         predicted_as_zero = 0
         total_ins_num = 0
+        entity_wise_recall = 1.0
+        entity_wise_acc = 1.0
+        entity_wise_corr = 1.0
 
         def logging(s, print_=True, log_=True):
             if print_:
@@ -785,6 +844,9 @@ class Config(object):
                 titles = data['titles']
                 indexes = data['indexes']
 
+                entity_wise_labels = data['entity_wise_labels']
+                entity_wise_masks = data['entity_wise_masks']
+
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
@@ -792,16 +854,24 @@ class Config(object):
                     is_rel_exist = pretrain_model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
 
-                predict_re,_ = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
+                entity_wise_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
                                    ht_pair_idxs, entity_mapping, entity_lengths)
+            flat_entity_wise_re = entity_wise_re.view(-1)
+            flat_entity_wise_labels = entity_wise_labels.view(-1)
+            flat_entity_wise_masks = entity_wise_masks.view(-1)
+            entity_wise_recall += flat_entity_wise_labels.sum().item()
+            entity_wise_acc += (flat_entity_wise_re[flat_entity_wise_masks==1] > 0).sum().item()
+            entity_wise_corr += ((flat_entity_wise_re>0)&(flat_entity_wise_labels==1)).sum().item()
+            #print(entity_wise_recall, entity_wise_acc, entity_wise_corr)
 
-                predict_re = torch.sigmoid(predict_re)
+                #predict_re = torch.sigmoid(predict_re)
 
-            predict_re = predict_re.data.cpu().numpy()
-            if two_phase:
-                is_rel_exist = is_rel_exist.cpu().numpy()
+            #predict_re = predict_re.data.cpu().numpy()
+            #if two_phase:
+            #    is_rel_exist = is_rel_exist.cpu().numpy()
 
+            '''
             for i in range(len(labels)):
                 label = labels[i]
                 index = indexes[i]
@@ -942,8 +1012,14 @@ class Config(object):
         auc = sklearn.metrics.auc(x = pr_x, y = pr_y)
 
         logging('Ignore ma_f1 {:3.4f} | input_theta {:3.4f} test_result F1 {:3.4f} | AUC {:3.4f}'.format(f1, input_theta, f1_arr[w], auc))
+        '''
+        logging('statics: '+str(entity_wise_corr)+' '+str(entity_wise_acc)+' '+str(entity_wise_recall))
+        logging('testing acc: '+str(entity_wise_corr/float(entity_wise_acc)))
+        logging('testing recall: '+str(entity_wise_corr/float(entity_wise_recall)))
+        recall = entity_wise_corr/entity_wise_recall
+        acc = entity_wise_corr/entity_wise_acc
 
-        return f1, auc, pr_x, pr_y
+        return (2*recall*acc)/(recall+acc+1e-20), 0.1, 0.1, 0.1
 
 
 

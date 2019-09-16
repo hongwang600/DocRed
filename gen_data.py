@@ -176,6 +176,12 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
             words += sent
             #words[-1] = '[SEP]'
 
+
+        vertexSet = item['vertexSet']
+        for idx, vertex in enumerate(vertexSet, 1):
+            for v in vertex:
+                words[v['pos'][0]:v['pos'][1]] = '[MASK]'
+
         bert_token[i], bert_mask[i], bert_starts[i] = bert.subword_tokenize_to_ids(words)
 
         for j, word in enumerate(words):
