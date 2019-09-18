@@ -73,7 +73,7 @@ class Config(object):
 
         self.period = 50
 
-        self.batch_size = 20
+        self.batch_size = 32
         #self.test_batch_size = 40
         self.h_t_limit = 1800
 
@@ -228,8 +228,8 @@ class Config(object):
 
         context_idxs = torch.LongTensor(self.batch_size, self.max_length).cuda()
         context_pos = torch.LongTensor(self.batch_size, self.max_length).cuda()
-        h_mapping = torch.Tensor(self.batch_size, self.h_t_limit, self.max_length).cuda()
-        t_mapping = torch.Tensor(self.batch_size, self.h_t_limit, self.max_length).cuda()
+        h_mapping = torch.Tensor(self.batch_size, self.h_t_limit, self.max_length*2).cuda()
+        t_mapping = torch.Tensor(self.batch_size, self.h_t_limit, self.max_length*2).cuda()
         relation_multi_label = torch.Tensor(self.batch_size, self.h_t_limit, self.relation_num).cuda()
         relation_mask = torch.Tensor(self.batch_size, self.h_t_limit).cuda()
 
@@ -281,8 +281,8 @@ class Config(object):
 
 
             for i, index in enumerate(cur_batch):
-                #context_idxs[i].copy_(torch.from_numpy(self.data_train_word[index, :]))
-                context_idxs[i].copy_(torch.from_numpy(self.data_train_bert_word[index, :]))
+                context_idxs[i].copy_(torch.from_numpy(self.data_train_word[index, :]))
+                #context_idxs[i].copy_(torch.from_numpy(self.data_train_bert_word[index, :]))
                 context_pos[i].copy_(torch.from_numpy(self.data_train_pos[index, :]))
                 context_char_idxs[i].copy_(torch.from_numpy(self.data_train_char[index, :]))
                 context_ner[i].copy_(torch.from_numpy(self.data_train_ner[index, :]))
@@ -315,11 +315,19 @@ class Config(object):
                     hlist = ins['vertexSet'][h_idx]
                     tlist = ins['vertexSet'][t_idx]
 
-                    for h in hlist:
-                        h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
+                    delta_dis = hlist[0]['pos'][0] - tlist[0]['pos'][0]
+                    if delta_dis < 0:
+                        for h in hlist:
+                            h_mapping[i, j, range(h['pos'][0]*2,h['pos'][1]*2,2)] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
 
-                    for t in tlist:
-                        t_mapping[i, j, t['pos'][0]:t['pos'][1]] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
+                        for t in tlist:
+                            t_mapping[i, j, range(t['pos'][0]*2,t['pos'][1]*2,2)] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
+                    else:
+                        for h in hlist:
+                            h_mapping[i, j, range(h['pos'][0]*2+1,h['pos'][1]*2+1,2)] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
+
+                        for t in tlist:
+                            t_mapping[i, j, range(t['pos'][0]*2+1,t['pos'][1]*2+1,2)] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
 
                     label = idx2label[(h_idx, t_idx)]
 
@@ -359,11 +367,19 @@ class Config(object):
                     hlist = ins['vertexSet'][h_idx]
                     tlist = ins['vertexSet'][t_idx]
 
-                    for h in hlist:
-                        h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
+                    delta_dis = hlist[0]['pos'][0] - tlist[0]['pos'][0]
+                    if delta_dis < 0:
+                        for h in hlist:
+                            h_mapping[i, j, range(h['pos'][0]*2,h['pos'][1]*2,2)] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
 
-                    for t in tlist:
-                        t_mapping[i, j, t['pos'][0]:t['pos'][1]] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
+                        for t in tlist:
+                            t_mapping[i, j, range(t['pos'][0]*2,t['pos'][1]*2,2)] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
+                    else:
+                        for h in hlist:
+                            h_mapping[i, j, range(h['pos'][0]*2+1,h['pos'][1]*2+1,2)] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
+
+                        for t in tlist:
+                            t_mapping[i, j, range(t['pos'][0]*2+1,t['pos'][1]*2+1,2)] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
 
                     relation_multi_label[i, j, 0] = 1
                     relation_label[i, j] = 0
@@ -389,8 +405,8 @@ class Config(object):
 
             yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'context_pos': context_pos[:cur_bsz, :max_c_len].contiguous(),
-                   'h_mapping': h_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len],
-                   't_mapping': t_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len],
+                   'h_mapping': h_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len*2],
+                   't_mapping': t_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len*2],
                    'relation_label': relation_label[:cur_bsz, :max_h_t_cnt].contiguous(),
                    'input_lengths' : input_lengths,
                    'pos_idx': pos_idx[:cur_bsz, :max_c_len].contiguous(),
@@ -411,8 +427,8 @@ class Config(object):
     def get_test_batch(self):
         context_idxs = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
         context_pos = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
-        h_mapping = torch.Tensor(self.test_batch_size, self.test_relation_limit, self.max_length).cuda()
-        t_mapping = torch.Tensor(self.test_batch_size, self.test_relation_limit, self.max_length).cuda()
+        h_mapping = torch.Tensor(self.test_batch_size, self.test_relation_limit, self.max_length*2).cuda()
+        t_mapping = torch.Tensor(self.test_batch_size, self.test_relation_limit, self.max_length*2).cuda()
         context_ner = torch.LongTensor(self.test_batch_size, self.max_length).cuda()
         context_char_idxs = torch.LongTensor(self.test_batch_size, self.max_length, self.char_limit).cuda()
         relation_mask = torch.Tensor(self.test_batch_size, self.h_t_limit).cuda()
@@ -458,8 +474,8 @@ class Config(object):
             evi_nums = []
 
             for i, index in enumerate(cur_batch):
-                #context_idxs[i].copy_(torch.from_numpy(self.data_test_word[index, :]))
-                context_idxs[i].copy_(torch.from_numpy(self.data_test_bert_word[index, :]))
+                context_idxs[i].copy_(torch.from_numpy(self.data_test_word[index, :]))
+                #context_idxs[i].copy_(torch.from_numpy(self.data_test_bert_word[index, :]))
                 context_pos[i].copy_(torch.from_numpy(self.data_test_pos[index, :]))
                 context_char_idxs[i].copy_(torch.from_numpy(self.data_test_char[index, :]))
                 context_ner[i].copy_(torch.from_numpy(self.data_test_ner[index, :]))
@@ -489,11 +505,20 @@ class Config(object):
                             hlist = ins['vertexSet'][h_idx]
                             tlist = ins['vertexSet'][t_idx]
 
+                            delta_dis = hlist[0]['pos'][0] - tlist[0]['pos'][0]
+                            if delta_dis < 0:
+                                for h in hlist:
+                                    h_mapping[i, j, range(h['pos'][0]*2,h['pos'][1]*2,2)] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
 
-                            for h in hlist:
-                                h_mapping[i, j, h['pos'][0]:h['pos'][1]] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
-                            for t in tlist:
-                                t_mapping[i, j, t['pos'][0]:t['pos'][1]] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
+                                for t in tlist:
+                                    t_mapping[i, j, range(t['pos'][0]*2,t['pos'][1]*2,2)] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
+                            else:
+                                for h in hlist:
+                                    h_mapping[i, j, range(h['pos'][0]*2+1,h['pos'][1]*2+1,2)] = 1.0 / len(hlist) / (h['pos'][1] - h['pos'][0])
+
+                                for t in tlist:
+                                    t_mapping[i, j, range(t['pos'][0]*2+1,t['pos'][1]*2+1,2)] = 1.0 / len(tlist) / (t['pos'][1] - t['pos'][0])
+
 
                             relation_mask[i, j] = 1
 
@@ -536,8 +561,8 @@ class Config(object):
 
             yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
                    'context_pos': context_pos[:cur_bsz, :max_c_len].contiguous(),
-                   'h_mapping': h_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len],
-                   't_mapping': t_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len],
+                   'h_mapping': h_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len*2],
+                   't_mapping': t_mapping[:cur_bsz, :max_h_t_cnt, :max_c_len*2],
                    'labels': labels,
                    'L_vertex': L_vertex,
                    'input_lengths': input_lengths,
@@ -565,7 +590,7 @@ class Config(object):
         ori_model.cuda()
         model = nn.DataParallel(ori_model)
 
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5)
+        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()))
         # nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
         BCE = nn.BCEWithLogitsLoss(reduction='none')
 
@@ -639,9 +664,9 @@ class Config(object):
                 predict_re, predict_evi = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
                 #print(h_mapping.size(),predict_evi.size(),evi_sent_labels.size(),evi_sent_masks.size())
-                evi_loss = torch.sum(BCE(predict_evi, evi_sent_labels) * evi_sent_masks) / torch.sum(evi_sent_masks)
+                #evi_loss = torch.sum(BCE(predict_evi, evi_sent_labels) * evi_sent_masks) / torch.sum(evi_sent_masks)
                 #print(evi_loss)
-                loss += evi_loss
+                #loss += evi_loss
 
 
                 output = torch.argmax(predict_re, dim=-1)
