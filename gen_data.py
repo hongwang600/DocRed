@@ -40,6 +40,28 @@ def sents_2_idx(sents, word2id):
         start_idx += len(sent)
     return sents_idx
 
+def build_cooccur_matrix(vertex_set):
+    entity_size = 50
+    if entity_size == 0:
+        return None
+    cooccur_matrix = np.zeros([entity_size, entity_size])
+    inverse_idx = {}
+    for idx, vertex in enumerate(vertex_set):
+        for v_ins in vertex:
+            if v_ins['sent_id'] in inverse_idx:
+                inverse_idx[v_ins['sent_id']].append(idx)
+            else:
+                inverse_idx[v_ins['sent_id']] = [idx]
+    for idx, vertex in enumerate(vertex_set):
+        for v_ins in vertex:
+            sent_id = v_ins['sent_id']
+            vertex_in_this_sent = inverse_idx[sent_id]
+            for v in vertex_in_this_sent:
+                cooccur_matrix[idx, v] = 1
+    #print(cooccur_matrix)
+    return cooccur_matrix
+
+
 def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''):
 
     ori_data = json.load(open(data_file_name))
@@ -160,6 +182,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     ner2id = json.load(open(os.path.join(out_path, "ner2id.json")))
 
     sen_tot = len(ori_data)
+    entity_num = 50
     sen_word = np.zeros((sen_tot, max_length), dtype = np.int64)
     sen_pos = np.zeros((sen_tot, max_length), dtype = np.int64)
     sen_ner = np.zeros((sen_tot, max_length), dtype = np.int64)
@@ -167,6 +190,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     bert_token = np.zeros((sen_tot, max_length), dtype = np.int64)
     bert_mask = np.zeros((sen_tot, max_length), dtype = np.int64)
     bert_starts = np.zeros((sen_tot, max_length), dtype = np.int64)
+    corr_matrix = np.zeros((sen_tot, entity_num, entity_num))
 
 
     for i in range(len(ori_data)):
@@ -178,9 +202,12 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
 
 
         vertexSet = item['vertexSet']
+        corr_matrix[i] = build_cooccur_matrix(vertexSet)
+        '''
         for idx, vertex in enumerate(vertexSet, 1):
             for v in vertex:
                 words[v['pos'][0]:v['pos'][1]] = ['[MASK]']*(v['pos'][1]-v['pos'][0])
+        '''
 
         bert_token[i], bert_mask[i], bert_starts[i] = bert.subword_tokenize_to_ids(words)
 
@@ -216,6 +243,7 @@ def init(data_file_name, rel2id, max_length = 512, is_training = True, suffix=''
     np.save(os.path.join(out_path, name_prefix + suffix + '_bert_word.npy'), bert_token)
     np.save(os.path.join(out_path, name_prefix + suffix + '_bert_mask.npy'), bert_mask)
     np.save(os.path.join(out_path, name_prefix + suffix + '_bert_starts.npy'), bert_starts)
+    np.save(os.path.join(out_path, name_prefix + suffix + '_corr_matrix.npy'), corr_matrix)
     print("Finish saving")
 
 

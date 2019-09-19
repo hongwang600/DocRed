@@ -149,6 +149,7 @@ class Config(object):
         self.data_train_bert_word = np.load(os.path.join(self.data_path, prefix+'_bert_word.npy'))
         self.data_train_bert_mask = np.load(os.path.join(self.data_path, prefix+'_bert_mask.npy'))
         self.data_train_bert_starts = np.load(os.path.join(self.data_path, prefix+'_bert_starts.npy'))
+        self.data_corr_matrix = np.load(os.path.join(self.data_path, prefix+'_corr_matrix.npy'))
 
         print("Finish reading")
 
@@ -179,6 +180,8 @@ class Config(object):
         self.data_test_bert_word = np.load(os.path.join(self.data_path, prefix+'_bert_word.npy'))
         self.data_test_bert_mask = np.load(os.path.join(self.data_path, prefix+'_bert_mask.npy'))
         self.data_test_bert_starts = np.load(os.path.join(self.data_path, prefix+'_bert_starts.npy'))
+
+        self.data_test_corr_matrix = np.load(os.path.join(self.data_path, prefix+'_corr_matrix.npy'))
 
 
         self.test_len = self.data_test_word.shape[0]
@@ -255,6 +258,7 @@ class Config(object):
 
         entity_wise_labels = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
         entity_wise_masks = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
+        corr_matrix = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
 
         for b in range(self.train_batches):
             start_id = b * self.batch_size
@@ -282,6 +286,8 @@ class Config(object):
             entity_wise_labels.zero_()
             entity_wise_masks.zero_()
 
+            corr_matrix.zero_()
+
 
             relation_label.fill_(IGNORE_INDEX)
 
@@ -297,6 +303,8 @@ class Config(object):
 
                 context_masks[i].copy_(torch.from_numpy(self.data_train_bert_mask[index, :]))
                 context_starts[i].copy_(torch.from_numpy(self.data_train_bert_starts[index, :]))
+
+                corr_matrix[i].copy_(torch.from_numpy(self.data_corr_matrix[index, :, :]))
 
                 for j in range(self.max_length):
                     if self.data_train_word[index, j]==0:
@@ -428,6 +436,7 @@ class Config(object):
                    'entity_lengths': entity_lengths[:cur_bsz],
                    'entity_wise_labels': entity_wise_labels[:cur_bsz],
                    'entity_wise_masks': entity_wise_masks[:cur_bsz],
+                   'corr_matrix': corr_matrix[:cur_bsz],
                    }
 
     def get_test_batch(self):
@@ -452,6 +461,8 @@ class Config(object):
         entity_wise_labels = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
         entity_wise_masks = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
 
+        corr_matrix = torch.Tensor(self.batch_size, self.entity_num, self.entity_num).cuda()
+
         for b in range(self.test_batches):
             start_id = b * self.test_batch_size
             cur_bsz = min(self.test_batch_size, self.test_len - start_id)
@@ -475,6 +486,8 @@ class Config(object):
             entity_wise_labels.zero_()
             entity_wise_masks.zero_()
 
+            corr_matrix.zero_()
+
             max_h_t_cnt = 1
 
             cur_batch.sort(key=lambda x: np.sum(self.data_test_word[x]>0) , reverse = True)
@@ -496,6 +509,8 @@ class Config(object):
 
                 context_masks[i].copy_(torch.from_numpy(self.data_test_bert_mask[index, :]))
                 context_starts[i].copy_(torch.from_numpy(self.data_test_bert_starts[index, :]))
+
+                corr_matrix[i].copy_(torch.from_numpy(self.data_test_corr_matrix[index, :, :]))
 
                 idx2label = defaultdict(list)
                 ins = self.test_file[index]
@@ -594,6 +609,7 @@ class Config(object):
                    'entity_lengths': entity_lengths[:cur_bsz],
                    'entity_wise_labels': entity_wise_labels[:cur_bsz],
                    'entity_wise_masks': entity_wise_masks[:cur_bsz],
+                   'corr_matrix': corr_matrix[:cur_bsz],
                    }
 
     def entity_loss(self, relation_label, entity_embed, ht_pair_idxs, relation_mask):
@@ -706,13 +722,15 @@ class Config(object):
                 entity_wise_labels = data['entity_wise_labels']
                 entity_wise_masks = data['entity_wise_masks']
 
+                corr_matrix = data['corr_matrix']
+
 
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
 
                 entity_wise_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
-                        ht_pair_idxs, entity_mapping, entity_lengths)
+                        ht_pair_idxs, entity_mapping, entity_lengths, corr_matrix)
                 #print(entity_wise_labels.size(),entity_wise_re.size())
                 loss = torch.sum(BCE(entity_wise_re, entity_wise_labels)*entity_wise_masks) /  (torch.sum(entity_wise_masks))
                 #print(loss)
@@ -847,6 +865,8 @@ class Config(object):
                 entity_wise_labels = data['entity_wise_labels']
                 entity_wise_masks = data['entity_wise_masks']
 
+                corr_matrix = data['corr_matrix']
+
                 dis_h_2_t = ht_pair_pos+10
                 dis_t_2_h = -ht_pair_pos+10
 
@@ -856,7 +876,7 @@ class Config(object):
 
                 entity_wise_re = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths,
                                    h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
-                                   ht_pair_idxs, entity_mapping, entity_lengths)
+                                   ht_pair_idxs, entity_mapping, entity_lengths, corr_matrix)
             flat_entity_wise_re = entity_wise_re.view(-1)
             flat_entity_wise_labels = entity_wise_labels.view(-1)
             flat_entity_wise_masks = entity_wise_masks.view(-1)

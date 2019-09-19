@@ -58,9 +58,10 @@ class BiLSTM(nn.Module):
         self.att_enc = SimpleEncoder(bert_hidden_size, 4, 4)
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         #self.linear_re = nn.Linear(bert_hidden_size+config.coref_size+config.entity_type_size, hidden_size)
-        self.linear_re = nn.Linear(bert_hidden_size, hidden_size)
-        self.ent_att_enc = SimpleEncoder(hidden_size+config.coref_size+config.entity_type_size, 4, 5)
-        self.linear_cls = nn.Linear(hidden_size+config.coref_size+config.entity_type_size, config.entity_num)
+        self.linear_re = nn.Linear(bert_hidden_size, config.entity_num)
+        #self.ent_att_enc = SimpleEncoder(hidden_size+config.coref_size+config.entity_type_size, 4, 5)
+        #self.linear_cls = nn.Linear(hidden_size, config.entity_num)
+        self.gcn_transform = nn.Linear(bert_hidden_size, config.entity_num)
 
         if self.use_distance:
             self.dis_embed = nn.Embedding(20, config.dis_size, padding_idx=10)
@@ -82,11 +83,12 @@ class BiLSTM(nn.Module):
 
     def forward(self, context_idxs, pos, context_ner, context_char_idxs, context_lens, h_mapping, t_mapping,
                 relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
-                ht_pair_idxs, entity_mapping, entity_lengths):
+                ht_pair_idxs, entity_mapping, entity_lengths, corr_matrix):
         # para_size, char_size, bsz = context_idxs.size(1), context_char_idxs.size(2), context_idxs.size(0)
         # context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size, -1)
         # context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
 
+        #print(corr_matrix[0][0],corr_matrix.size())
 
         context_output = self.bert(context_idxs, attention_mask=context_masks)[0]
         context_output = [layer[starts.nonzero().squeeze(1)]
@@ -95,18 +97,23 @@ class BiLSTM(nn.Module):
         context_output = torch.nn.functional.pad(context_output,(0,0,0,context_idxs.size(-1)-context_output.size(-2)))
 
 
-        context_output = self.linear_re(context_output)
+        #context_output = self.linear_re(context_output)
+        '''
         if self.use_coreference:
             context_output = torch.cat([context_output, self.entity_embed(pos)], dim=-1)
 
         if self.use_entity_type:
             context_output = torch.cat([context_output, self.ner_emb(context_ner)], dim=-1)
+        '''
         entity_embed = torch.matmul(entity_mapping, context_output)
         batch_size, entity_num = entity_mapping.size()[:2]
-        mask = self.mask_lengths(batch_size, entity_num, entity_lengths)
+        #mask = self.mask_lengths(batch_size, entity_num, entity_lengths)
         #print(mask)
-        entity_embed = self.ent_att_enc(entity_embed, mask)
-        pred_rel = self.linear_cls(entity_embed)
+        #entity_embed = self.ent_att_enc(entity_embed, mask)
+        entity_embed = torch.matmul(corr_matrix, entity_embed)  / corr_matrix.sum(-1, keepdim=True)
+        entity_embed = torch.matmul(corr_matrix, entity_embed)  / corr_matrix.sum(-1, keepdim=True)
+
+        pred_rel = self.linear_re(entity_embed)
         #print(pred_rel.size())
         return pred_rel
 
