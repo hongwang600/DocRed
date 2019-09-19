@@ -110,8 +110,8 @@ class BiLSTM(nn.Module):
         #mask = self.mask_lengths(batch_size, entity_num, entity_lengths)
         #print(mask)
         #entity_embed = self.ent_att_enc(entity_embed, mask)
-        entity_embed = torch.matmul(corr_matrix, entity_embed)  / corr_matrix.sum(-1, keepdim=True)
-        entity_embed = torch.matmul(corr_matrix, entity_embed)  / corr_matrix.sum(-1, keepdim=True)
+        entity_embed = torch.matmul(corr_matrix, entity_embed)  / (corr_matrix.sum(-1, keepdim=True)+1e-6)
+        entity_embed = torch.matmul(corr_matrix, entity_embed)  / (corr_matrix.sum(-1, keepdim=True) + 1e-6)
 
         pred_rel = self.linear_re(entity_embed)
         #print(pred_rel.size())
