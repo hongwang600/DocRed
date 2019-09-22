@@ -53,14 +53,15 @@ class BiLSTM(nn.Module):
 
         self.input_size = input_size
 
-        #self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
+        self.rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
         #self.sent_rnn = EncoderLSTM(input_size, hidden_size, 1, True, True, 1 - config.keep_prob, False)
         self.att_enc = SimpleEncoder(bert_hidden_size, 4, 4)
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         #self.linear_re = nn.Linear(bert_hidden_size+config.coref_size+config.entity_type_size, hidden_size)
-        self.linear_re = nn.Linear(bert_hidden_size, config.entity_num)
+        #self.linear_re = nn.Linear(hidden_size*2, hidden_size)
+        self.linear_re = nn.Linear(bert_hidden_size, hidden_size)
         #self.ent_att_enc = SimpleEncoder(hidden_size+config.coref_size+config.entity_type_size, 4, 5)
-        #self.linear_cls = nn.Linear(hidden_size, config.entity_num)
+        self.linear_cls = nn.Linear(hidden_size, config.entity_num)
         self.gcn_transform = nn.Linear(bert_hidden_size, config.entity_num)
 
         if self.use_distance:
@@ -95,6 +96,15 @@ class BiLSTM(nn.Module):
                    for layer, starts in zip(context_output, context_starts)]
         context_output = pad_sequence(context_output, batch_first=True, padding_value=-1)
         context_output = torch.nn.functional.pad(context_output,(0,0,0,context_idxs.size(-1)-context_output.size(-2)))
+        '''
+        sent = self.word_emb(context_idxs)
+        if self.use_coreference:
+            sent = torch.cat([sent, self.entity_embed(pos)], dim=-1)
+
+        if self.use_entity_type:
+            sent = torch.cat([sent, self.ner_emb(context_ner)], dim=-1)
+        context_output = self.rnn(sent, context_lens)
+        '''
 
 
         #context_output = self.linear_re(context_output)
@@ -111,11 +121,26 @@ class BiLSTM(nn.Module):
         #print(mask)
         #entity_embed = self.ent_att_enc(entity_embed, mask)
         entity_embed = torch.matmul(corr_matrix, entity_embed)  / (corr_matrix.sum(-1, keepdim=True)+1e-6)
-        entity_embed = torch.matmul(corr_matrix, entity_embed)  / (corr_matrix.sum(-1, keepdim=True) + 1e-6)
+        #entity_embed = torch.matmul(corr_matrix, entity_embed)  / (corr_matrix.sum(-1, keepdim=True) + 1e-6)
+        entity_embed = self.linear_re(entity_embed)
+        start_re_output = entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,0]].contiguous()
+        end_re_output = entity_embed[torch.arange(batch_size).view(batch_size, 1),ht_pair_idxs[:,:,1]].contiguous()
 
-        pred_rel = self.linear_re(entity_embed)
+        if self.use_distance:
+            s_rep = torch.cat([start_re_output, self.dis_embed(dis_h_2_t)], dim=-1)
+            t_rep = torch.cat([end_re_output, self.dis_embed(dis_t_2_h)], dim=-1)
+            #rep = torch.cat([s_rep, t_rep], dim=-1)
+            #rep = s_rep - t_rep
+            #predict_re = self.linear_re(rep)
+            predict_re = self.bili(s_rep, t_rep)
+        else:
+            #rep = s_rep - t_rep
+            #rep = torch.cat([s_rep, t_rep], dim=-1)
+            #predict_re = self.linear_re(rep)
+            predict_re = self.bili(start_re_output, end_re_output)
+
         #print(pred_rel.size())
-        return pred_rel
+        return predict_re
 
         #proj_entity_embed = self.linear_re(entity_embed)
 
