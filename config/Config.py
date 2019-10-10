@@ -672,7 +672,7 @@ class Config(object):
                 predict_re, entity_embed = model(context_idxs, context_pos, context_ner, context_char_idxs, input_lengths, h_mapping, t_mapping, relation_mask, dis_h_2_t, dis_t_2_h, sent_idxs, sent_lengths, reverse_sent_idxs, context_masks, context_starts,
                         ht_pair_idxs, entity_mapping, entity_lengths)
                 loss = torch.sum(BCE(predict_re, relation_multi_label)*relation_mask.unsqueeze(2)) /  (self.relation_num * torch.sum(relation_mask))
-                loss += self.entity_loss(relation_label, entity_embed, ht_pair_idxs, relation_mask)
+                #loss += self.entity_loss(relation_label, entity_embed, ht_pair_idxs, relation_mask)
 
 
                 output = torch.argmax(predict_re, dim=-1)
